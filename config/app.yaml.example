@@ -1,0 +1,23 @@
+# Application Configuration
+# Copy to app.yaml and adjust as needed.
+
+server:
+  host: 127.0.0.1
+  port: 8000
+
+data:
+  dir: ./data
+
+logging:
+  level: INFO
+  format: json
+
+chunking:
+  size: 512
+  overlap: 50
+
+retrieval:
+  vector_weight: 0.6
+  graph_weight: 0.3
+  recency_weight: 0.1
+  top_k: 10

@@ -1,0 +1,54 @@
+# Claude Code (local user permissions)
+.claude/settings.local.json
+
+# Data storage (local databases, tokens)
+data/
+.tokens/
+
+# Configuration (actual configs contain secrets; only .example files committed)
+config/*.yaml
+!config/*.yaml.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.eggs/
+*.whl
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# Node.js
+node_modules/
+frontend/dist/
+.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/

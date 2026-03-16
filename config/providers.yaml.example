@@ -1,0 +1,25 @@
+# LLM and Embedding Provider Configuration
+# Copy to providers.yaml and fill in your settings.
+# API keys should be set via environment variables, not in this file.
+
+llm:
+  primary:
+    provider: bedrock
+    model: us.anthropic.claude-sonnet-4-20250514-v1:0
+    region: us-east-1
+    # AWS credentials via env: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+  fallback:
+    provider: ollama
+    model: llama3.2
+    base_url: http://localhost:11434
+
+embedding:
+  primary:
+    provider: bedrock
+    model: amazon.titan-embed-text-v2:0
+    region: us-east-1
+    dimensions: 1024
+  fallback:
+    provider: ollama
+    model: nomic-embed-text
+    base_url: http://localhost:11434

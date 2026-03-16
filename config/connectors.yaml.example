@@ -1,0 +1,37 @@
+# Connector Configuration
+# Copy to connectors.yaml and fill in your settings.
+# Credentials should be set via environment variables, not in this file.
+
+teams:
+  enabled: false
+  sync_interval_minutes: 30
+  # MS Graph credentials via env: MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET
+
+outlook:
+  enabled: false
+  sync_interval_minutes: 15
+  folders:
+    - Inbox
+    - Sent Items
+  # MS Graph credentials shared with Teams connector
+
+obsidian:
+  enabled: false
+  vault_path: ~/Documents/Obsidian
+  sync_interval_minutes: 5
+  exclude_patterns:
+    - ".obsidian/"
+    - ".trash/"
+    - "templates/"
+
+jira:
+  enabled: false
+  base_url: https://your-instance.atlassian.net
+  sync_interval_minutes: 30
+  jql_filter: "assignee = currentUser() ORDER BY updated DESC"
+  # Credentials via env: JIRA_EMAIL, JIRA_API_TOKEN
+
+apple_notes:
+  enabled: false
+  sync_interval_minutes: 15
+  # No credentials needed — uses macOS AppleScript bridge
