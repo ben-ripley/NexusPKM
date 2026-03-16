@@ -45,9 +45,29 @@ cd frontend && npx tsc --noEmit                # Type check
 cd frontend && npm run build                   # Production build
 ```
 
-## Development Rules
+## Per-Task Development Workflow
 
-### Process
+Follow these steps **in order** for every Jira issue worked on:
+
+1. **Read the Jira issue** — fetch it via MCP and read title, description, acceptance criteria, and dependencies.
+2. **Transition to In Progress and assign** — transition the issue to "In Progress" (transition ID `21`) and assign to `557058:1765a43f-ad6f-42f2-a153-efe410493e6c` (Ben Ripley).
+3. **Clarify if uncertain** — if and only if requirements are unclear, ask before proceeding. Do not ask about things that are clearly specified.
+4. **Plan for non-trivial work** — if the task requires creating or modifying more than a few files, enter plan mode (`EnterPlanMode`) and get approval before writing any code.
+5. **Update design docs if needed** — if the work involves functionality not covered in `design/` (adrs/, architecture/, specs/), update the relevant design docs before implementing.
+6. **TDD: write tests first** — write failing tests before writing implementation code. Red → Green → Refactor.
+7. **Review before committing** — run type checking, linting, and all tests. If the application can be started, verify integration tests pass too.
+8. **Commit locally** — use this exact format (no Co-Authored-By):
+   ```
+   feat(NXP-{id}): {short description}
+
+   {One or two sentences summarizing what the change does and why.}
+   ```
+9. **Create a pull request** — summarize the changes, reference the Jira issue and spec.
+10. **Transition Jira to In Review** — transition the issue to "In Review" (transition ID `31`).
+
+### Development Rules
+
+#### Process
 - Read the feature spec in `design/specs/` BEFORE implementing any feature
 - Write tests BEFORE implementation (TDD)
 - One feature branch per Jira issue: `feature/NXP-{id}-{short-description}`
