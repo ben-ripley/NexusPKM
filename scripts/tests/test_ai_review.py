@@ -1,5 +1,6 @@
 """Tests for scripts/ai_review.py."""
 
+import subprocess
 from unittest.mock import MagicMock, patch
 
 import anthropic
@@ -28,6 +29,79 @@ def test_parse_next_link_returns_none_when_absent() -> None:
 
 def test_parse_next_link_returns_none_for_empty_header() -> None:
     assert ai_review._parse_next_link("") is None
+
+
+# ---------------------------------------------------------------------------
+# _truncate_diff
+# ---------------------------------------------------------------------------
+
+
+def test_truncate_diff_returns_diff_unchanged_when_within_limit() -> None:
+    diff = "x" * ai_review.MAX_DIFF_CHARS
+    assert ai_review._truncate_diff(diff) == diff
+
+
+def test_truncate_diff_trims_and_appends_notice_when_over_limit() -> None:
+    diff = "x" * (ai_review.MAX_DIFF_CHARS + 500)
+    result = ai_review._truncate_diff(diff)
+    assert len(result) < len(diff)
+    assert result.startswith("x" * ai_review.MAX_DIFF_CHARS)
+    assert "[diff truncated due to size]" in result
+
+
+# ---------------------------------------------------------------------------
+# _call_claude
+# ---------------------------------------------------------------------------
+
+
+def test_call_claude_returns_review_text() -> None:
+    with patch("anthropic.AnthropicBedrock") as mock_bedrock:
+        mock_bedrock.return_value.messages.create.return_value = MagicMock(
+            stop_reason="end_turn",
+            content=[TextBlock(text="looks good", type="text")],
+        )
+        result = ai_review._call_claude("some diff", "test-model", "us-east-1")
+
+    assert result == "looks good"
+    mock_bedrock.assert_called_once_with(aws_region="us-east-1", timeout=60.0)
+
+
+def test_call_claude_exits_on_api_error() -> None:
+    exc = anthropic.APIConnectionError(
+        message="connection failed",
+        request=httpx.Request("POST", "https://bedrock.amazonaws.com"),
+    )
+    with patch("anthropic.AnthropicBedrock") as mock_bedrock:
+        mock_bedrock.return_value.messages.create.side_effect = exc
+        with pytest.raises(SystemExit) as exc_info:
+            ai_review._call_claude("diff", "model", "us-east-1")
+
+    assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# get_local_diff
+# ---------------------------------------------------------------------------
+
+
+def test_get_local_diff_returns_stdout() -> None:
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="diff --git a/f b/f\n+line")
+        result = ai_review.get_local_diff()
+
+    assert result == "diff --git a/f b/f\n+line"
+    mock_run.assert_called_once_with(
+        ["git", "diff", "origin/main...HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+
+def test_get_local_diff_propagates_subprocess_error() -> None:
+    with patch("subprocess.run", side_effect=subprocess.CalledProcessError(128, "git")):
+        with pytest.raises(subprocess.CalledProcessError):
+            ai_review.get_local_diff()
 
 
 # ---------------------------------------------------------------------------
@@ -142,16 +216,54 @@ def test_upsert_pr_comment_posts_new_comment_when_none_exists() -> None:
 
 
 # ---------------------------------------------------------------------------
-# main() — integration paths
+# main() — local mode
 # ---------------------------------------------------------------------------
 
 
-def _mock_bedrock_message(text: str = "review text") -> MagicMock:
-    """Return a realistic mock Bedrock message with an actual TextBlock."""
-    mock_message = MagicMock()
-    mock_message.stop_reason = "end_turn"
-    mock_message.content = [TextBlock(text=text, type="text")]
-    return mock_message
+def test_main_local_prints_review(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
+    with (
+        patch.object(ai_review, "get_local_diff", return_value="some diff"),
+        patch.object(ai_review, "_call_claude", return_value="## AI Review\nLooks good"),
+    ):
+        ai_review.main(["--local"])
+
+    captured = capsys.readouterr()
+    assert "## AI Review" in captured.out
+
+
+def test_main_local_exits_early_on_empty_diff(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
+    with (
+        patch.object(ai_review, "get_local_diff", return_value="   "),
+        patch.object(ai_review, "_call_claude") as mock_claude,
+    ):
+        ai_review.main(["--local"])
+
+    mock_claude.assert_not_called()
+
+
+def test_main_local_exits_on_git_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
+    with patch.object(
+        ai_review,
+        "get_local_diff",
+        side_effect=subprocess.CalledProcessError(128, "git"),
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            ai_review.main(["--local"])
+
+    assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# main() — PR mode
+# ---------------------------------------------------------------------------
 
 
 def test_main_exits_early_on_empty_diff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -163,11 +275,12 @@ def test_main_exits_early_on_empty_diff(monkeypatch: pytest.MonkeyPatch) -> None
     with (
         patch.object(ai_review, "get_pr_diff", return_value="   "),
         patch.object(ai_review, "upsert_pr_comment") as mock_upsert,
-        patch("anthropic.AnthropicBedrock"),
+        patch.object(ai_review, "_call_claude") as mock_claude,
     ):
-        ai_review.main()
+        ai_review.main([])
 
     mock_upsert.assert_not_called()
+    mock_claude.assert_not_called()
 
 
 def test_main_truncates_large_diff(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,24 +291,15 @@ def test_main_truncates_large_diff(monkeypatch: pytest.MonkeyPatch) -> None:
 
     large_diff = "x" * (ai_review.MAX_DIFF_CHARS + 1000)
 
-    captured: list[str] = []
-
-    def fake_upsert(
-        _client: httpx.Client, _repo: str, _pr: str, body: str
-    ) -> None:
-        captured.append(body)
-
     with (
         patch.object(ai_review, "get_pr_diff", return_value=large_diff),
-        patch.object(ai_review, "upsert_pr_comment", side_effect=fake_upsert),
-        patch("anthropic.AnthropicBedrock") as mock_bedrock,
+        patch.object(ai_review, "upsert_pr_comment"),
+        patch.object(ai_review, "_call_claude", return_value="review") as mock_claude,
     ):
-        mock_bedrock.return_value.messages.create.return_value = _mock_bedrock_message()
-        ai_review.main()
+        ai_review.main([])
 
-    call_args = mock_bedrock.return_value.messages.create.call_args
-    prompt_content = call_args.kwargs["messages"][0]["content"]
-    assert "[diff truncated due to size]" in prompt_content
+    sent_diff = mock_claude.call_args.args[0]
+    assert "[diff truncated due to size]" in sent_diff
 
 
 def test_main_uses_default_model_when_env_var_empty(
@@ -205,21 +309,19 @@ def test_main_uses_default_model_when_env_var_empty(
     monkeypatch.setenv("PR_NUMBER", "1")
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
-    monkeypatch.setenv("BEDROCK_MODEL_ID", "")  # empty — should fall back to DEFAULT_MODEL
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "")
 
     with (
         patch.object(ai_review, "get_pr_diff", return_value="some diff"),
         patch.object(ai_review, "upsert_pr_comment"),
-        patch("anthropic.AnthropicBedrock") as mock_bedrock,
+        patch.object(ai_review, "_call_claude", return_value="review") as mock_claude,
     ):
-        mock_bedrock.return_value.messages.create.return_value = _mock_bedrock_message()
-        ai_review.main()
+        ai_review.main([])
 
-    call_args = mock_bedrock.return_value.messages.create.call_args
-    assert call_args.kwargs["model"] == ai_review.DEFAULT_MODEL
+    assert mock_claude.call_args.args[1] == ai_review.DEFAULT_MODEL
 
 
-def test_main_passes_aws_region_to_bedrock_client(
+def test_main_passes_aws_region_to_call_claude(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("REPO", "owner/repo")
@@ -230,12 +332,11 @@ def test_main_passes_aws_region_to_bedrock_client(
     with (
         patch.object(ai_review, "get_pr_diff", return_value="some diff"),
         patch.object(ai_review, "upsert_pr_comment"),
-        patch("anthropic.AnthropicBedrock") as mock_bedrock,
+        patch.object(ai_review, "_call_claude", return_value="review") as mock_claude,
     ):
-        mock_bedrock.return_value.messages.create.return_value = _mock_bedrock_message()
-        ai_review.main()
+        ai_review.main([])
 
-    mock_bedrock.assert_called_once_with(aws_region="eu-west-1", timeout=60.0)
+    assert mock_claude.call_args.args[2] == "eu-west-1"
 
 
 def test_main_exits_when_aws_region_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -245,28 +346,6 @@ def test_main_exits_when_aws_region_missing(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
 
     with pytest.raises(SystemExit) as exc_info:
-        ai_review.main()
-
-    assert exc_info.value.code == 1
-
-
-def test_main_exits_on_bedrock_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("REPO", "owner/repo")
-    monkeypatch.setenv("PR_NUMBER", "1")
-    monkeypatch.setenv("GITHUB_TOKEN", "tok")
-    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
-
-    exc = anthropic.APIConnectionError(
-        message="connection failed",
-        request=httpx.Request("POST", "https://bedrock.amazonaws.com"),
-    )
-
-    with (
-        patch.object(ai_review, "get_pr_diff", return_value="some diff"),
-        patch("anthropic.AnthropicBedrock") as mock_bedrock,
-    ):
-        mock_bedrock.return_value.messages.create.side_effect = exc
-        with pytest.raises(SystemExit) as exc_info:
-            ai_review.main()
+        ai_review.main([])
 
     assert exc_info.value.code == 1

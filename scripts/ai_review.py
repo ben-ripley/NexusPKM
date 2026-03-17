@@ -3,9 +3,20 @@
 
 The script posts exactly one comment per PR, identified by the AI_REVIEW_MARKER sentinel.
 On subsequent pushes the existing comment is edited rather than creating a new one.
+
+Local mode (--local):
+    Diffs the current branch against origin/main and prints the review to stdout.
+    Requires only AWS_DEFAULT_REGION (and optionally BEDROCK_MODEL_ID) to be set.
+    Use this before creating a PR to catch issues early.
+
+PR mode (default):
+    Fetches the diff from the GitHub API and upserts a review comment on the PR.
+    Requires REPO, PR_NUMBER, GITHUB_TOKEN, and AWS_DEFAULT_REGION.
 """
 
+import argparse
 import os
+import subprocess
 import sys
 
 import anthropic
@@ -103,6 +114,50 @@ def _parse_next_link(link_header: str) -> str | None:
     return None
 
 
+def _truncate_diff(diff: str) -> str:
+    """Truncate diff to MAX_DIFF_CHARS and append a notice if it was trimmed."""
+    if len(diff) <= MAX_DIFF_CHARS:
+        return diff
+    log.info("diff_truncated", original=len(diff), limit=MAX_DIFF_CHARS)
+    return diff[:MAX_DIFF_CHARS] + "\n\n[diff truncated due to size]"
+
+
+def _call_claude(diff: str, model: str, aws_region: str) -> str:
+    """Send diff to Claude via Bedrock and return the review text."""
+    log.info("sending_to_claude", chars=len(diff), model=model)
+    bedrock = anthropic.AnthropicBedrock(aws_region=aws_region, timeout=60.0)
+    try:
+        message = bedrock.messages.create(
+            model=model,
+            max_tokens=MAX_TOKENS,
+            messages=[{"role": "user", "content": REVIEW_PROMPT.format(diff=diff)}],
+        )
+    except anthropic.APIError as exc:
+        log.error("bedrock_api_error", error=str(exc))
+        sys.exit(1)
+
+    if message.stop_reason == "max_tokens":
+        log.warning("response_truncated_by_max_tokens", model=model)
+
+    first_block = message.content[0]
+    if not isinstance(first_block, anthropic.types.TextBlock):
+        log.error("unexpected_response_type", type=type(first_block).__name__)
+        sys.exit(1)
+
+    return first_block.text
+
+
+def get_local_diff() -> str:
+    """Return the git diff of the current branch against origin/main."""
+    result = subprocess.run(
+        ["git", "diff", "origin/main...HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
+
+
 def get_pr_diff(client: httpx.Client, repo: str, pr_number: str) -> str:
     response = client.get(
         f"{GITHUB_API_BASE}/repos/{repo}/pulls/{pr_number}",
@@ -158,7 +213,20 @@ def upsert_pr_comment(
     response.raise_for_status()
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(
+        description="AI PR diff reviewer powered by Claude via AWS Bedrock"
+    )
+    parser.add_argument(
+        "--local",
+        action="store_true",
+        help=(
+            "Review the local branch diff against origin/main and print to stdout. "
+            "Requires AWS_DEFAULT_REGION. Does not need REPO/PR_NUMBER/GITHUB_TOKEN."
+        ),
+    )
+    args = parser.parse_args(argv)
+
     structlog.configure(
         processors=[
             structlog.processors.TimeStamper(fmt="iso"),
@@ -168,11 +236,31 @@ def main() -> None:
         ]
     )
 
+    aws_region = _require_env("AWS_DEFAULT_REGION")
+    model = _require_env("BEDROCK_MODEL_ID", DEFAULT_MODEL)
+
+    if args.local:
+        log.info("fetching_local_diff")
+        try:
+            diff = get_local_diff()
+        except subprocess.CalledProcessError as exc:
+            log.error("git_diff_failed", error=str(exc))
+            sys.exit(1)
+
+        if not diff.strip():
+            log.info("empty_diff_skipping")
+            return
+
+        diff = _truncate_diff(diff)
+        review_text = _call_claude(diff, model, aws_region)
+        print(review_text)
+        log.info("review_complete")
+        return
+
+    # PR mode
     repo = _require_env("REPO")
     pr_number = _require_env("PR_NUMBER")
     github_token = _require_env("GITHUB_TOKEN")
-    aws_region = _require_env("AWS_DEFAULT_REGION")
-    model = _require_env("BEDROCK_MODEL_ID", DEFAULT_MODEL)
 
     headers = {
         "Authorization": f"Bearer {github_token}",
@@ -192,31 +280,9 @@ def main() -> None:
             log.info("empty_diff_skipping")
             return
 
-        if len(diff) > MAX_DIFF_CHARS:
-            log.info("diff_truncated", original=len(diff), limit=MAX_DIFF_CHARS)
-            diff = diff[:MAX_DIFF_CHARS] + "\n\n[diff truncated due to size]"
+        diff = _truncate_diff(diff)
+        review_text = _call_claude(diff, model, aws_region)
 
-        log.info("sending_to_claude", chars=len(diff), model=model)
-        bedrock = anthropic.AnthropicBedrock(aws_region=aws_region, timeout=60.0)
-        try:
-            message = bedrock.messages.create(
-                model=model,
-                max_tokens=MAX_TOKENS,
-                messages=[{"role": "user", "content": REVIEW_PROMPT.format(diff=diff)}],
-            )
-        except anthropic.APIError as exc:
-            log.error("bedrock_api_error", error=str(exc))
-            sys.exit(1)
-
-        if message.stop_reason == "max_tokens":
-            log.warning("response_truncated_by_max_tokens", model=model)
-
-        first_block = message.content[0]
-        if not isinstance(first_block, anthropic.types.TextBlock):
-            log.error("unexpected_response_type", type=type(first_block).__name__)
-            sys.exit(1)
-
-        review_text = first_block.text
         comment = (
             f"{AI_REVIEW_MARKER}\n"
             f"{review_text}\n\n"
