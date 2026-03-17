@@ -5,8 +5,29 @@ from unittest.mock import MagicMock, patch
 import anthropic
 import httpx
 import pytest
+from anthropic.types import TextBlock
 
 import ai_review
+
+
+# ---------------------------------------------------------------------------
+# _parse_next_link
+# ---------------------------------------------------------------------------
+
+
+def test_parse_next_link_returns_url_when_present() -> None:
+    header = '<https://api.github.com/repos/o/r/issues/1/comments?page=2>; rel="next", <https://api.github.com/repos/o/r/issues/1/comments?page=5>; rel="last"'
+    result = ai_review._parse_next_link(header)
+    assert result == "https://api.github.com/repos/o/r/issues/1/comments?page=2"
+
+
+def test_parse_next_link_returns_none_when_absent() -> None:
+    header = '<https://api.github.com/repos/o/r/issues/1/comments?page=1>; rel="first"'
+    assert ai_review._parse_next_link(header) is None
+
+
+def test_parse_next_link_returns_none_for_empty_header() -> None:
+    assert ai_review._parse_next_link("") is None
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +79,27 @@ def test_find_existing_review_comment_returns_none_when_absent() -> None:
     assert result is None
 
 
+def test_find_existing_review_comment_follows_pagination() -> None:
+    """Marker on page 2 must still be found."""
+    page2_url = f"{ai_review.GITHUB_API_BASE}/repos/owner/repo/issues/42/comments?page=2&per_page=100"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "page=2" in str(request.url):
+            return httpx.Response(
+                200,
+                json=[{"id": 3, "body": f"{ai_review.AI_REVIEW_MARKER}\nold review"}],
+            )
+        return httpx.Response(
+            200,
+            json=[{"id": 1, "body": "comment"}, {"id": 2, "body": "other"}],
+            headers={"link": f'<{page2_url}>; rel="next"'},
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    result = ai_review.find_existing_review_comment(client, "owner/repo", "42")
+    assert result == 3
+
+
 # ---------------------------------------------------------------------------
 # upsert_pr_comment
 # ---------------------------------------------------------------------------
@@ -104,10 +146,19 @@ def test_upsert_pr_comment_posts_new_comment_when_none_exists() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _mock_bedrock_message(text: str = "review text") -> MagicMock:
+    """Return a realistic mock Bedrock message with an actual TextBlock."""
+    mock_message = MagicMock()
+    mock_message.stop_reason = "end_turn"
+    mock_message.content = [TextBlock(text=text, type="text")]
+    return mock_message
+
+
 def test_main_exits_early_on_empty_diff(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REPO", "owner/repo")
     monkeypatch.setenv("PR_NUMBER", "1")
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
 
     with (
         patch.object(ai_review, "get_pr_diff", return_value="   "),
@@ -123,14 +174,9 @@ def test_main_truncates_large_diff(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REPO", "owner/repo")
     monkeypatch.setenv("PR_NUMBER", "1")
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
 
     large_diff = "x" * (ai_review.MAX_DIFF_CHARS + 1000)
-
-    mock_message = MagicMock()
-    mock_message.stop_reason = "end_turn"
-    mock_message.content = [MagicMock(spec=["text", "__class__"])]
-    mock_message.content[0].__class__ = anthropic.types.TextBlock
-    mock_message.content[0].text = "review text"
 
     captured: list[str] = []
 
@@ -144,10 +190,9 @@ def test_main_truncates_large_diff(monkeypatch: pytest.MonkeyPatch) -> None:
         patch.object(ai_review, "upsert_pr_comment", side_effect=fake_upsert),
         patch("anthropic.AnthropicBedrock") as mock_bedrock,
     ):
-        mock_bedrock.return_value.messages.create.return_value = mock_message
+        mock_bedrock.return_value.messages.create.return_value = _mock_bedrock_message()
         ai_review.main()
 
-    # The prompt sent to Claude must contain the truncation notice
     call_args = mock_bedrock.return_value.messages.create.call_args
     prompt_content = call_args.kwargs["messages"][0]["content"]
     assert "[diff truncated due to size]" in prompt_content
@@ -159,30 +204,57 @@ def test_main_uses_default_model_when_env_var_empty(
     monkeypatch.setenv("REPO", "owner/repo")
     monkeypatch.setenv("PR_NUMBER", "1")
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
-    monkeypatch.setenv("BEDROCK_MODEL_ID", "")  # empty — should fall back
-
-    mock_message = MagicMock()
-    mock_message.stop_reason = "end_turn"
-    mock_message.content = [MagicMock(spec=["text", "__class__"])]
-    mock_message.content[0].__class__ = anthropic.types.TextBlock
-    mock_message.content[0].text = "review"
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+    monkeypatch.setenv("BEDROCK_MODEL_ID", "")  # empty — should fall back to DEFAULT_MODEL
 
     with (
         patch.object(ai_review, "get_pr_diff", return_value="some diff"),
         patch.object(ai_review, "upsert_pr_comment"),
         patch("anthropic.AnthropicBedrock") as mock_bedrock,
     ):
-        mock_bedrock.return_value.messages.create.return_value = mock_message
+        mock_bedrock.return_value.messages.create.return_value = _mock_bedrock_message()
         ai_review.main()
 
     call_args = mock_bedrock.return_value.messages.create.call_args
     assert call_args.kwargs["model"] == ai_review.DEFAULT_MODEL
 
 
+def test_main_passes_aws_region_to_bedrock_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("REPO", "owner/repo")
+    monkeypatch.setenv("PR_NUMBER", "1")
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "eu-west-1")
+
+    with (
+        patch.object(ai_review, "get_pr_diff", return_value="some diff"),
+        patch.object(ai_review, "upsert_pr_comment"),
+        patch("anthropic.AnthropicBedrock") as mock_bedrock,
+    ):
+        mock_bedrock.return_value.messages.create.return_value = _mock_bedrock_message()
+        ai_review.main()
+
+    mock_bedrock.assert_called_once_with(aws_region="eu-west-1", timeout=60.0)
+
+
+def test_main_exits_when_aws_region_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REPO", "owner/repo")
+    monkeypatch.setenv("PR_NUMBER", "1")
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    with pytest.raises(SystemExit) as exc_info:
+        ai_review.main()
+
+    assert exc_info.value.code == 1
+
+
 def test_main_exits_on_bedrock_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REPO", "owner/repo")
     monkeypatch.setenv("PR_NUMBER", "1")
     monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
 
     exc = anthropic.APIConnectionError(
         message="connection failed",

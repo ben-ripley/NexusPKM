@@ -91,4 +91,4 @@ jobs:
         run: pip install -r scripts/requirements.txt
 
       - name: Tests (pytest)
-        run: pytest scripts/tests/
+        run: pytest scripts/tests/ --cov=ai_review --cov-report=term-missing

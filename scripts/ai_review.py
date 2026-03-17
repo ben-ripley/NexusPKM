@@ -13,16 +13,19 @@ import httpx
 import structlog
 
 MAX_DIFF_CHARS = 100_000
-MAX_TOKENS = 4096
+MAX_TOKENS = 8192
 # Bedrock cross-region inference profile (us.* prefix) — override via BEDROCK_MODEL_ID env var
 DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"
 # HTML sentinel used to find and update the existing review comment.
 # GitHub renders <!-- … --> as invisible, but the API still returns it in `body`,
 # so this works as a unique marker for locating and PATCHing the existing comment.
 AI_REVIEW_MARKER = "<!-- ai-review -->"
-# GitHub REST API base URL — override for GitHub Enterprise via GITHUB_API_URL env var
+# GitHub REST API base URL — override for GitHub Enterprise via GITHUB_API_URL env var.
+# Tests can override this with monkeypatch.setattr(ai_review, "GITHUB_API_BASE", ...).
 GITHUB_API_BASE = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
+# structlog.get_logger() returns a lazy proxy; processors are only applied when a log
+# method is invoked, so this is safe to call before structlog.configure() in main().
 log = structlog.get_logger()
 
 REVIEW_PROMPT = """\
@@ -78,6 +81,28 @@ PR diff:
 """
 
 
+def _require_env(name: str, default: str | None = None) -> str:
+    """Return an env var value, falling back to default, or exit with a structured error."""
+    value = os.environ.get(name) or default
+    if not value:
+        log.error("missing_required_env_var", name=name)
+        sys.exit(1)
+    return value
+
+
+def _parse_next_link(link_header: str) -> str | None:
+    """Extract the 'next' page URL from a GitHub Link response header, or return None.
+
+    GitHub paginates list endpoints via RFC 5988 Link headers, e.g.:
+    ``<https://api.github.com/...?page=2>; rel="next", <...>; rel="last"``
+    """
+    for part in link_header.split(","):
+        url_part, _, rel_part = part.strip().partition(";")
+        if rel_part.strip() == 'rel="next"':
+            return url_part.strip().strip("<>")
+    return None
+
+
 def get_pr_diff(client: httpx.Client, repo: str, pr_number: str) -> str:
     response = client.get(
         f"{GITHUB_API_BASE}/repos/{repo}/pulls/{pr_number}",
@@ -91,16 +116,23 @@ def get_pr_diff(client: httpx.Client, repo: str, pr_number: str) -> str:
 def find_existing_review_comment(
     client: httpx.Client, repo: str, pr_number: str
 ) -> int | None:
-    """Return the comment ID of an existing AI review comment, or None."""
-    response = client.get(
-        f"{GITHUB_API_BASE}/repos/{repo}/issues/{pr_number}/comments",
-        params={"per_page": 100},
-        timeout=30,
-    )
-    response.raise_for_status()
-    for comment in response.json():
-        if AI_REVIEW_MARKER in comment["body"]:
-            return int(comment["id"])
+    """Return the comment ID of an existing AI review comment, or None.
+
+    Follows GitHub's Link-header pagination so that PRs with more than 100
+    issue comments are handled correctly.  The GitHub API caps ``per_page``
+    at 100; subsequent pages are discovered via the ``rel="next"`` Link header.
+    """
+    url: str | None = f"{GITHUB_API_BASE}/repos/{repo}/issues/{pr_number}/comments"
+    params: dict[str, int] | None = {"per_page": 100}
+    while url:
+        response = client.get(url, params=params, timeout=30)
+        response.raise_for_status()
+        for comment in response.json():
+            if AI_REVIEW_MARKER in comment["body"]:
+                return int(comment["id"])
+        # The next-page URL from the Link header already includes all query params.
+        url = _parse_next_link(response.headers.get("link", ""))
+        params = None
     return None
 
 
@@ -136,10 +168,11 @@ def main() -> None:
         ]
     )
 
-    repo = os.environ["REPO"]
-    pr_number = os.environ["PR_NUMBER"]
-    github_token = os.environ["GITHUB_TOKEN"]
-    model = os.environ.get("BEDROCK_MODEL_ID") or DEFAULT_MODEL
+    repo = _require_env("REPO")
+    pr_number = _require_env("PR_NUMBER")
+    github_token = _require_env("GITHUB_TOKEN")
+    aws_region = _require_env("AWS_DEFAULT_REGION")
+    model = _require_env("BEDROCK_MODEL_ID", DEFAULT_MODEL)
 
     headers = {
         "Authorization": f"Bearer {github_token}",
@@ -164,7 +197,7 @@ def main() -> None:
             diff = diff[:MAX_DIFF_CHARS] + "\n\n[diff truncated due to size]"
 
         log.info("sending_to_claude", chars=len(diff), model=model)
-        bedrock = anthropic.AnthropicBedrock(timeout=60.0)
+        bedrock = anthropic.AnthropicBedrock(aws_region=aws_region, timeout=60.0)
         try:
             message = bedrock.messages.create(
                 model=model,
