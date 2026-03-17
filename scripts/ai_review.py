@@ -11,7 +11,7 @@ import anthropic
 
 MAX_DIFF_CHARS = 100_000
 # Bedrock model ID — override via BEDROCK_MODEL_ID env var or GitHub Actions variable if needed
-DEFAULT_MODEL = "anthropic.claude-sonnet-4-6"
+DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"
 
 REVIEW_PROMPT = """\
 You are reviewing a pull request for NexusPKM, a Python/TypeScript personal knowledge \
