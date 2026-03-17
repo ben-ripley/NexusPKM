@@ -32,6 +32,7 @@ jobs:
           # that trusts the GitHub OIDC provider — avoids storing long-lived keys.
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_SESSION_TOKEN: ${{ secrets.AWS_SESSION_TOKEN }}
           AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
           # To override the default model, add BEDROCK_MODEL_ID as a repo Actions variable.
           # Default: us.anthropic.claude-sonnet-4-6-20251101-v1:0
