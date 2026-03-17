@@ -10,7 +10,8 @@ import urllib.request
 import anthropic
 
 MAX_DIFF_CHARS = 100_000
-MODEL = "claude-sonnet-4-6"
+# Bedrock cross-region inference profile ID — override via BEDROCK_MODEL_ID env var if needed
+DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6-20251101-v1:0"
 
 REVIEW_PROMPT = """\
 You are reviewing a pull request for NexusPKM, a Python/TypeScript personal knowledge \
@@ -100,7 +101,7 @@ def main() -> None:
     repo = os.environ["REPO"]
     pr_number = os.environ["PR_NUMBER"]
     github_token = os.environ["GITHUB_TOKEN"]
-    anthropic_key = os.environ["ANTHROPIC_API_KEY"]
+    model = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_MODEL)
 
     print(f"Fetching diff for PR #{pr_number} in {repo}...")
     try:
@@ -117,10 +118,12 @@ def main() -> None:
         print(f"Diff is {len(diff)} chars; truncating to {MAX_DIFF_CHARS}.")
         diff = diff[:MAX_DIFF_CHARS] + "\n\n[diff truncated due to size]"
 
-    print(f"Sending {len(diff)} chars to Claude ({MODEL})...")
-    client = anthropic.Anthropic(api_key=anthropic_key)
+    print(f"Sending {len(diff)} chars to Claude via Bedrock ({model})...")
+    # AnthropicBedrock reads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+    # from the environment automatically (standard boto3 credential chain).
+    client = anthropic.AnthropicBedrock()
     message = client.messages.create(
-        model=MODEL,
+        model=model,
         max_tokens=2048,
         messages=[{"role": "user", "content": REVIEW_PROMPT.format(diff=diff)}],
     )
@@ -130,7 +133,7 @@ def main() -> None:
         print("Unexpected response type from Claude.", file=sys.stderr)
         sys.exit(1)
     review_text = first_block.text
-    comment = f"<!-- ai-review -->\n{review_text}\n\n*🤖 AI review by [{MODEL}](https://anthropic.com)*"
+    comment = f"<!-- ai-review -->\n{review_text}\n\n*🤖 AI review by [{model}](https://anthropic.com) via AWS Bedrock*"
 
     print("Posting review comment to PR...")
     try:
