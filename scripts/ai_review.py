@@ -101,7 +101,7 @@ def main() -> None:
     repo = os.environ["REPO"]
     pr_number = os.environ["PR_NUMBER"]
     github_token = os.environ["GITHUB_TOKEN"]
-    model = os.environ.get("BEDROCK_MODEL_ID", DEFAULT_MODEL)
+    model = os.environ.get("BEDROCK_MODEL_ID") or DEFAULT_MODEL
 
     print(f"Fetching diff for PR #{pr_number} in {repo}...")
     try:
