@@ -2,6 +2,7 @@
 
 from unittest.mock import MagicMock, patch
 
+import anthropic
 import httpx
 import pytest
 
@@ -128,9 +129,7 @@ def test_main_truncates_large_diff(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_message = MagicMock()
     mock_message.stop_reason = "end_turn"
     mock_message.content = [MagicMock(spec=["text", "__class__"])]
-    mock_message.content[0].__class__ = __import__(
-        "anthropic"
-    ).types.TextBlock
+    mock_message.content[0].__class__ = anthropic.types.TextBlock
     mock_message.content[0].text = "review text"
 
     captured: list[str] = []
@@ -165,9 +164,7 @@ def test_main_uses_default_model_when_env_var_empty(
     mock_message = MagicMock()
     mock_message.stop_reason = "end_turn"
     mock_message.content = [MagicMock(spec=["text", "__class__"])]
-    mock_message.content[0].__class__ = __import__(
-        "anthropic"
-    ).types.TextBlock
+    mock_message.content[0].__class__ = anthropic.types.TextBlock
     mock_message.content[0].text = "review"
 
     with (
@@ -180,3 +177,24 @@ def test_main_uses_default_model_when_env_var_empty(
 
     call_args = mock_bedrock.return_value.messages.create.call_args
     assert call_args.kwargs["model"] == ai_review.DEFAULT_MODEL
+
+
+def test_main_exits_on_bedrock_api_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REPO", "owner/repo")
+    monkeypatch.setenv("PR_NUMBER", "1")
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+
+    exc = anthropic.APIConnectionError(
+        message="connection failed",
+        request=httpx.Request("POST", "https://bedrock.amazonaws.com"),
+    )
+
+    with (
+        patch.object(ai_review, "get_pr_diff", return_value="some diff"),
+        patch("anthropic.AnthropicBedrock") as mock_bedrock,
+    ):
+        mock_bedrock.return_value.messages.create.side_effect = exc
+        with pytest.raises(SystemExit) as exc_info:
+            ai_review.main()
+
+    assert exc_info.value.code == 1

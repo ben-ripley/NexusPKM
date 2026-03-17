@@ -14,10 +14,14 @@ import structlog
 
 MAX_DIFF_CHARS = 100_000
 MAX_TOKENS = 4096
-# Bedrock cross-region inference profile — override via BEDROCK_MODEL_ID env var
+# Bedrock cross-region inference profile (us.* prefix) — override via BEDROCK_MODEL_ID env var
 DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"
-# HTML sentinel used to find and update the existing review comment
+# HTML sentinel used to find and update the existing review comment.
+# GitHub renders <!-- … --> as invisible, but the API still returns it in `body`,
+# so this works as a unique marker for locating and PATCHing the existing comment.
 AI_REVIEW_MARKER = "<!-- ai-review -->"
+# GitHub REST API base URL — override for GitHub Enterprise via GITHUB_API_URL env var
+GITHUB_API_BASE = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
 log = structlog.get_logger()
 
@@ -76,7 +80,7 @@ PR diff:
 
 def get_pr_diff(client: httpx.Client, repo: str, pr_number: str) -> str:
     response = client.get(
-        f"https://api.github.com/repos/{repo}/pulls/{pr_number}",
+        f"{GITHUB_API_BASE}/repos/{repo}/pulls/{pr_number}",
         headers={"Accept": "application/vnd.github.v3.diff"},
         timeout=30,
     )
@@ -89,7 +93,8 @@ def find_existing_review_comment(
 ) -> int | None:
     """Return the comment ID of an existing AI review comment, or None."""
     response = client.get(
-        f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+        f"{GITHUB_API_BASE}/repos/{repo}/issues/{pr_number}/comments",
+        params={"per_page": 100},
         timeout=30,
     )
     response.raise_for_status()
@@ -107,14 +112,14 @@ def upsert_pr_comment(
     if comment_id is not None:
         log.info("updating_existing_comment", comment_id=comment_id)
         response = client.patch(
-            f"https://api.github.com/repos/{repo}/issues/comments/{comment_id}",
+            f"{GITHUB_API_BASE}/repos/{repo}/issues/comments/{comment_id}",
             json={"body": body},
             timeout=30,
         )
     else:
         log.info("creating_new_comment")
         response = client.post(
-            f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments",
+            f"{GITHUB_API_BASE}/repos/{repo}/issues/{pr_number}/comments",
             json={"body": body},
             timeout=30,
         )
@@ -125,7 +130,9 @@ def main() -> None:
     structlog.configure(
         processors=[
             structlog.processors.TimeStamper(fmt="iso"),
-            structlog.dev.ConsoleRenderer(),
+            structlog.dev.ConsoleRenderer()
+            if sys.stderr.isatty()
+            else structlog.processors.JSONRenderer(),
         ]
     )
 
@@ -157,12 +164,16 @@ def main() -> None:
             diff = diff[:MAX_DIFF_CHARS] + "\n\n[diff truncated due to size]"
 
         log.info("sending_to_claude", chars=len(diff), model=model)
-        bedrock = anthropic.AnthropicBedrock()
-        message = bedrock.messages.create(
-            model=model,
-            max_tokens=MAX_TOKENS,
-            messages=[{"role": "user", "content": REVIEW_PROMPT.format(diff=diff)}],
-        )
+        bedrock = anthropic.AnthropicBedrock(timeout=60.0)
+        try:
+            message = bedrock.messages.create(
+                model=model,
+                max_tokens=MAX_TOKENS,
+                messages=[{"role": "user", "content": REVIEW_PROMPT.format(diff=diff)}],
+            )
+        except anthropic.APIError as exc:
+            log.error("bedrock_api_error", error=str(exc))
+            sys.exit(1)
 
         if message.stop_reason == "max_tokens":
             log.warning("response_truncated_by_max_tokens", model=model)

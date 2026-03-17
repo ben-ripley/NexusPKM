@@ -20,8 +20,6 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.6.0",
     "mypy>=1.11",
-    # Required to run and test scripts/ai_review.py
-    "anthropic[bedrock]>=0.40.0",
 ]
 
 [build-system]
@@ -32,10 +30,9 @@ build-backend = "hatchling.build"
 packages = ["src/nexuspkm"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "../scripts/tests"]
-pythonpath = ["src", "../scripts"]
+testpaths = ["tests"]
+pythonpath = ["src"]
 asyncio_mode = "auto"
-addopts = "--import-mode=importlib"
 
 [tool.ruff]
 line-length = 100
