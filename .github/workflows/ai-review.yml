@@ -22,8 +22,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install anthropic SDK (Bedrock)
-        run: pip install "anthropic[bedrock]"
+      - name: Install dependencies
+        run: pip install "anthropic[bedrock]" structlog httpx
 
       - name: Run AI review
         run: python scripts/ai_review.py
