@@ -36,8 +36,8 @@ Pluggable connector framework with sync scheduler, Microsoft Graph auth, and Tea
 - `backend/src/nexuspkm/connectors/base.py` — BaseConnector, ConnectorRegistry
 - `backend/src/nexuspkm/connectors/scheduler.py` — APScheduler-based sync
 - `backend/src/nexuspkm/connectors/microsoft/auth.py` — device code OAuth2, token storage
-- `backend/src/nexuspkm/connectors/microsoft/teams.py` — meeting discovery + VTT parsing
-- `backend/src/nexuspkm/connectors/microsoft/vtt_parser.py` — VTT → TranscriptSegments
+- `backend/src/nexuspkm/connectors/microsoft/vtt_parser.py` — VTT → TranscriptSegments (standalone parser)
+- `backend/src/nexuspkm/connectors/microsoft/teams.py` — meeting discovery + calls vtt_parser + Document transformation
 - `backend/src/nexuspkm/connectors/obsidian/` — markdown parser + filesystem watcher
 - `GET /api/connectors/status`, `POST /api/connectors/{name}/sync`
 

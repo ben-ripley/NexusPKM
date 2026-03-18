@@ -1,7 +1,7 @@
 # Phase 7 — V3 Connector & Advanced Features
 
 **Jira Epic:** NXP-8
-**Dependencies:** NXP-4 (Phase 3), NXP-5 (Phase 4), NXP-6 (Phase 5)
+**Dependencies:** NXP-4 (Phase 3), NXP-5 (Phase 4), NXP-6 (Phase 5), NXP-7 (Phase 6 — calendar data required by NXP-86/87)
 
 JIRA connector, schedule and task management, and proactive context surfacing.
 

@@ -9,14 +9,14 @@ Extensibility API, autonomous merge loop, connector write-back, and CI tooling e
 
 ## Stories
 
-| Jira Key | Title |
-|----------|-------|
-| NXP-88 | Implement Extensibility API |
-| NXP-89 | Evaluate CodeRabbit / Ellipsis |
-| NXP-95 | Implement Autonomous Merge Loop |
-| NXP-96 | Implement Connector Write-Back |
+| Jira Key | Title | Spec |
+|----------|-------|------|
+| NXP-88 | Implement Extensibility API | F-013 FR-6 |
+| NXP-89 | Evaluate CodeRabbit / Ellipsis | — |
+| NXP-95 | Implement Autonomous Merge Loop | — |
+| NXP-96 | Implement Connector Write-Back | — |
 
-*No subtasks defined yet — detail will be added to Jira when this phase is reached.*
+*Subtasks not yet defined — detail will be added to Jira when this phase is reached.*
 
 ## Key Outputs
 

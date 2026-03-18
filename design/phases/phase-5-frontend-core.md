@@ -38,7 +38,7 @@ Application shell, chat interface, search, dashboard, graph explorer, and settin
 - `frontend/src/components/search/` — search bar, results, filters
 - `frontend/src/components/dashboard/` — activity feed, connector status, stats
 - `frontend/src/components/graph/` — force-directed graph canvas + controls
-- `backend/src/nexuspkm/api/chat.py` — WebSocket streaming endpoint
+- `backend/src/nexuspkm/api/chat.py` — WebSocket streaming endpoint (cross-phase: backend work within NXP-76)
 - `frontend/src/hooks/` — useChat, useSearch, useDashboard, useGraphData
 - `frontend/src/services/` — websocket.ts, api.ts
 

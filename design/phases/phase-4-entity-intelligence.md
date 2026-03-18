@@ -7,6 +7,8 @@ LLM-powered entity extraction, deduplication, contradiction detection, and async
 
 ---
 
+> **Jira key note:** Story keys NXP-60–61 are followed by subtask keys NXP-70–74. The gap (NXP-62–69) is occupied by Phase 5 (Frontend Core) story keys — issue numbering reflects creation order across all epics, not sequential assignment within a phase.
+
 ## Stories
 
 | Jira Key | Title | Subtasks | Spec |
