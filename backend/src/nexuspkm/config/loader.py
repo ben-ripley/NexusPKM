@@ -10,26 +10,43 @@ Env var examples:
   NEXUSPKM_PROVIDERS__LLM__PRIMARY__MODEL=gpt-4o
   NEXUSPKM_APP__SERVER__PORT=9000
   NEXUSPKM_CONNECTORS__OBSIDIAN__ENABLED=true
+
+Note: ``load_config`` performs synchronous filesystem I/O and is intended
+to be called exactly once at process startup, before the async event loop
+begins (e.g., in a synchronous ``lifespan`` setup block).  Do not call it
+from within an async request handler or coroutine.
 """
 
 import os
 from pathlib import Path
 from typing import Any
 
+import structlog
 import yaml
 
 from .models import NexusPKMConfig
+
+log = structlog.get_logger()
 
 _ENV_PREFIX = "NEXUSPKM_"
 _ENV_DELIMITER = "__"
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
-    """Load a YAML file, returning an empty dict if it does not exist."""
+    """Load a YAML file, returning an empty dict if it does not exist.
+
+    Raises:
+        ValueError: If the file exists but contains invalid YAML, with the
+                    file path included in the message for easy diagnosis.
+    """
     if not path.exists():
+        log.debug("config_file_not_found_using_defaults", path=str(path))
         return {}
     with path.open() as f:
-        return yaml.safe_load(f) or {}
+        try:
+            return yaml.safe_load(f) or {}
+        except yaml.YAMLError as exc:
+            raise ValueError(f"Failed to parse {path.name}: {exc}") from exc
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -44,7 +61,12 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 
 
 def _set_nested(d: dict[str, Any], keys: list[str], value: str) -> None:
-    """Set a value in a nested dict using a list of keys, creating missing levels."""
+    """Set *value* at the nested path *keys* inside *d*, creating missing levels.
+
+    If an intermediate key holds a non-dict value it is replaced with a dict.
+    *value* is always a string — Pydantic coerces it to the target field type
+    during model validation.
+    """
     for key in keys[:-1]:
         if key not in d or not isinstance(d[key], dict):
             d[key] = {}
@@ -76,9 +98,13 @@ def load_config(config_dir: Path = Path("config")) -> NexusPKMConfig:
     Args:
         config_dir: Directory containing providers.yaml, app.yaml, and
                     connectors.yaml.  Missing files are treated as empty
-                    (defaults apply).  Raises ``ValidationError`` if the
-                    resulting configuration is invalid.
+                    (defaults apply).
+
+    Raises:
+        ValueError: If a config file contains invalid YAML.
+        ValidationError: If the resulting configuration fails Pydantic validation.
     """
+    log.debug("loading_config", config_dir=str(config_dir))
     providers_data = _load_yaml(config_dir / "providers.yaml")
     app_data = _load_yaml(config_dir / "app.yaml")
     connectors_data = _load_yaml(config_dir / "connectors.yaml")
@@ -91,4 +117,6 @@ def load_config(config_dir: Path = Path("config")) -> NexusPKMConfig:
 
     merged = _apply_env_overrides(merged)
 
-    return NexusPKMConfig.model_validate(merged)
+    config = NexusPKMConfig.model_validate(merged)
+    log.debug("config_loaded", llm_provider=config.providers.llm.primary.provider)
+    return config

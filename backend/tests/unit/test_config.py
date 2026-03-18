@@ -7,12 +7,14 @@ import yaml
 from pydantic import ValidationError
 
 from nexuspkm.config import load_config
+from nexuspkm.config.loader import _deep_merge, _set_nested
 from nexuspkm.config.models import (
     EmbeddingProviderConfig,
     JiraConnectorConfig,
     LLMProviderConfig,
     NexusPKMConfig,
     OutlookConnectorConfig,
+    RetrievalConfig,
     TeamsConnectorConfig,
 )
 
@@ -278,3 +280,132 @@ def test_no_api_key_fields_in_connector_configs() -> None:
     for model_cls in (TeamsConnectorConfig, OutlookConnectorConfig, JiraConnectorConfig):
         found = set(model_cls.model_fields) & secret_names
         assert not found, f"Secret fields found in {model_cls.__name__}: {found}"
+
+
+# ---------------------------------------------------------------------------
+# _deep_merge
+# ---------------------------------------------------------------------------
+
+
+def test_deep_merge_non_overlapping_keys() -> None:
+    result = _deep_merge({"a": 1}, {"b": 2})
+    assert result == {"a": 1, "b": 2}
+
+
+def test_deep_merge_override_scalar() -> None:
+    result = _deep_merge({"a": 1}, {"a": 2})
+    assert result == {"a": 2}
+
+
+def test_deep_merge_nested_dicts() -> None:
+    base = {"a": {"x": 1, "y": 2}}
+    override = {"a": {"y": 99, "z": 3}}
+    result = _deep_merge(base, override)
+    assert result == {"a": {"x": 1, "y": 99, "z": 3}}
+
+
+def test_deep_merge_does_not_mutate_base() -> None:
+    base = {"a": {"x": 1}}
+    _deep_merge(base, {"a": {"x": 2}})
+    assert base == {"a": {"x": 1}}
+
+
+def test_deep_merge_override_dict_with_scalar() -> None:
+    """A scalar in override replaces a dict in base."""
+    result = _deep_merge({"a": {"x": 1}}, {"a": "scalar"})
+    assert result == {"a": "scalar"}
+
+
+def test_deep_merge_empty_override() -> None:
+    base = {"a": 1, "b": 2}
+    assert _deep_merge(base, {}) == base
+
+
+def test_deep_merge_empty_base() -> None:
+    override = {"a": 1}
+    assert _deep_merge({}, override) == override
+
+
+# ---------------------------------------------------------------------------
+# _set_nested
+# ---------------------------------------------------------------------------
+
+
+def test_set_nested_single_key() -> None:
+    d: dict[str, object] = {}
+    _set_nested(d, ["port"], "9000")
+    assert d == {"port": "9000"}
+
+
+def test_set_nested_two_levels() -> None:
+    d: dict[str, object] = {}
+    _set_nested(d, ["server", "port"], "9000")
+    assert d == {"server": {"port": "9000"}}
+
+
+def test_set_nested_three_levels() -> None:
+    d: dict[str, object] = {}
+    _set_nested(d, ["providers", "llm", "primary"], "bedrock")
+    assert d == {"providers": {"llm": {"primary": "bedrock"}}}
+
+
+def test_set_nested_merges_existing_dict() -> None:
+    d: dict[str, object] = {"server": {"host": "127.0.0.1"}}
+    _set_nested(d, ["server", "port"], "9000")
+    assert d == {"server": {"host": "127.0.0.1", "port": "9000"}}
+
+
+def test_set_nested_overwrites_scalar_with_dict() -> None:
+    """When an intermediate key holds a scalar, it is replaced with a dict."""
+    d: dict[str, object] = {"server": "old_value"}
+    _set_nested(d, ["server", "port"], "9000")
+    assert d == {"server": {"port": "9000"}}
+
+
+# ---------------------------------------------------------------------------
+# yaml.YAMLError handling
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_raises_on_malformed_yaml(tmp_path: Path) -> None:
+    (tmp_path / "providers.yaml").write_text("llm: [unclosed bracket")
+    with pytest.raises(ValueError, match="providers.yaml"):
+        load_config(tmp_path)
+
+
+def test_load_config_raises_on_malformed_app_yaml(tmp_path: Path) -> None:
+    write_yaml(tmp_path / "providers.yaml", MINIMAL_PROVIDERS)
+    (tmp_path / "app.yaml").write_text(": invalid: yaml: {{")
+    with pytest.raises(ValueError, match="app.yaml"):
+        load_config(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# Model validators
+# ---------------------------------------------------------------------------
+
+
+def test_jira_connector_base_url_none_by_default() -> None:
+    config = JiraConnectorConfig()
+    assert config.base_url is None
+
+
+def test_jira_connector_raises_when_enabled_without_base_url() -> None:
+    with pytest.raises(ValidationError):
+        JiraConnectorConfig(enabled=True)
+
+
+def test_jira_connector_valid_when_enabled_with_base_url() -> None:
+    config = JiraConnectorConfig(enabled=True, base_url="https://myorg.atlassian.net")
+    assert config.enabled is True
+
+
+def test_retrieval_weights_sum_to_one() -> None:
+    config = RetrievalConfig()
+    total = config.vector_weight + config.graph_weight + config.recency_weight
+    assert total == pytest.approx(1.0)
+
+
+def test_retrieval_weights_validation_error_when_sum_not_one() -> None:
+    with pytest.raises(ValidationError):
+        RetrievalConfig(vector_weight=0.5, graph_weight=0.5, recency_weight=0.5)

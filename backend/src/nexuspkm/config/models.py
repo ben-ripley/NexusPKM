@@ -7,9 +7,9 @@ Secrets (API keys, tokens) are intentionally absent from all models.
 They are read directly from environment variables by provider implementations.
 """
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 ProviderName = Literal["bedrock", "openai", "ollama", "openrouter", "lm_studio"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -83,6 +83,15 @@ class RetrievalConfig(BaseModel):
     recency_weight: float = Field(default=0.1, ge=0.0, le=1.0)
     top_k: int = Field(default=10, gt=0)
 
+    @model_validator(mode="after")
+    def weights_must_sum_to_one(self) -> Self:
+        total = self.vector_weight + self.graph_weight + self.recency_weight
+        if abs(total - 1.0) > 1e-6:
+            raise ValueError(
+                f"vector_weight + graph_weight + recency_weight must equal 1.0, got {total}"
+            )
+        return self
+
 
 class AppConfig(BaseModel):
     server: ServerConfig = Field(default_factory=ServerConfig)
@@ -119,9 +128,15 @@ class ObsidianConnectorConfig(BaseModel):
 
 class JiraConnectorConfig(BaseModel):
     enabled: bool = False
-    base_url: str = ""
+    base_url: str | None = None
     sync_interval_minutes: int = Field(default=30, gt=0)
     jql_filter: str = "assignee = currentUser() ORDER BY updated DESC"
+
+    @model_validator(mode="after")
+    def base_url_required_when_enabled(self) -> Self:
+        if self.enabled and not self.base_url:
+            raise ValueError("base_url is required when jira connector is enabled")
+        return self
 
 
 class AppleNotesConnectorConfig(BaseModel):
