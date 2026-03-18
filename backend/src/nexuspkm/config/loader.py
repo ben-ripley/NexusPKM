@@ -23,6 +23,7 @@ begins (e.g., in a synchronous ``lifespan`` setup block).  Do not call it
 from within an async request handler or coroutine.
 """
 
+import asyncio
 import copy
 import os
 from pathlib import Path
@@ -97,6 +98,7 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     for name, value in os.environ.items():
         if not name.startswith(_ENV_PREFIX):
             continue
+        # Lowercased to match Pydantic field names — assumes all field names are lowercase.
         path = name.removeprefix(_ENV_PREFIX).lower().split(_ENV_DELIMITER)
         # Skip malformed names that produce empty segments
         if any(segment == "" for segment in path):
@@ -117,10 +119,22 @@ def load_config(config_dir: Path = _DEFAULT_CONFIG_DIR) -> NexusPKMConfig:
                     directory.  Pass an explicit path to override (e.g. in tests).
 
     Raises:
+        RuntimeError: If called from within a running async event loop.
         ValueError: If a config file contains invalid YAML or a non-mapping
                     top-level value.
         ValidationError: If the resulting configuration fails Pydantic validation.
     """
+    # Guard: synchronous I/O must not block a running event loop.
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        pass  # No loop running — safe to proceed.
+    else:
+        raise RuntimeError(
+            "load_config() must not be called from within a running event loop. "
+            "Call it synchronously at application startup before the loop begins."
+        )
+
     if not config_dir.exists():
         log.warning("config_dir_not_found_using_all_defaults", config_dir=str(config_dir))
     else:

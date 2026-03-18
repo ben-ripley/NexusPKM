@@ -8,8 +8,15 @@ import yaml
 from pydantic import ValidationError
 
 from nexuspkm.config import load_config
-from nexuspkm.config.loader import _apply_env_overrides, _load_yaml, _set_nested
+from nexuspkm.config.loader import (
+    _DEFAULT_CONFIG_DIR,
+    _apply_env_overrides,
+    _load_yaml,
+    _set_nested,
+)
 from nexuspkm.config.models import (
+    ChunkingConfig,
+    DataConfig,
     EmbeddingProviderConfig,
     JiraConnectorConfig,
     LLMProviderConfig,
@@ -129,6 +136,7 @@ def test_load_config_app_settings(tmp_path: Path) -> None:
     assert config.app.logging.level == "DEBUG"
     assert config.app.chunking.size == 256
     assert config.app.retrieval.top_k == 20
+    assert config.app.data.dir == Path("./data").expanduser()
 
 
 def test_load_config_connectors(tmp_path: Path) -> None:
@@ -490,3 +498,75 @@ def test_load_yaml_raises_on_non_mapping_top_level(tmp_path: Path) -> None:
     (tmp_path / "list.yaml").write_text("- item1\n- item2\n")
     with pytest.raises(ValueError, match="list.yaml"):
         _load_yaml(tmp_path / "list.yaml")
+
+
+# ---------------------------------------------------------------------------
+# _DEFAULT_CONFIG_DIR
+# ---------------------------------------------------------------------------
+
+
+def test_default_config_dir_is_absolute() -> None:
+    assert _DEFAULT_CONFIG_DIR.is_absolute()
+
+
+def test_default_config_dir_name_is_config() -> None:
+    assert _DEFAULT_CONFIG_DIR.name == "config"
+
+
+# ---------------------------------------------------------------------------
+# DataConfig
+# ---------------------------------------------------------------------------
+
+
+def test_data_config_default_dir_is_path() -> None:
+    config = DataConfig()
+    assert isinstance(config.dir, Path)
+
+
+def test_data_config_default_dir_is_expanded() -> None:
+    config = DataConfig()
+    assert not str(config.dir).startswith("~")
+
+
+def test_data_config_tilde_dir_is_expanded() -> None:
+    config = DataConfig(dir="~/mydata")
+    assert config.dir == Path("~/mydata").expanduser()
+    assert not str(config.dir).startswith("~")
+
+
+# ---------------------------------------------------------------------------
+# ChunkingConfig validators
+# ---------------------------------------------------------------------------
+
+
+def test_chunking_config_defaults_are_valid() -> None:
+    config = ChunkingConfig()
+    assert config.size == 512
+    assert config.overlap == 50
+
+
+def test_chunking_config_raises_when_overlap_equals_size() -> None:
+    with pytest.raises(ValidationError, match="overlap"):
+        ChunkingConfig(size=100, overlap=100)
+
+
+def test_chunking_config_raises_when_overlap_exceeds_size() -> None:
+    with pytest.raises(ValidationError, match="overlap"):
+        ChunkingConfig(size=50, overlap=100)
+
+
+# ---------------------------------------------------------------------------
+# load_config — async event loop guard
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_raises_when_called_from_running_loop(tmp_path: Path) -> None:
+    import asyncio
+
+    write_yaml(tmp_path / "providers.yaml", MINIMAL_PROVIDERS)
+
+    async def _call_from_loop() -> None:
+        load_config(tmp_path)
+
+    with pytest.raises(RuntimeError, match="running event loop"):
+        asyncio.run(_call_from_loop())

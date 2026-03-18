@@ -12,6 +12,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+# NOTE: "bedrock" covers Anthropic models hosted on AWS Bedrock.
+# A direct Anthropic API provider (without Bedrock) is not currently supported.
 ProviderName = Literal["bedrock", "openai", "ollama", "openrouter", "lm_studio"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
 LogFormat = Literal["json", "console"]
@@ -65,7 +67,12 @@ class ServerConfig(BaseModel):
 
 
 class DataConfig(BaseModel):
-    dir: str = "./data"
+    dir: Path = Path("./data")
+
+    @field_validator("dir", mode="before")
+    @classmethod
+    def expand_data_dir(cls, v: object) -> Path:
+        return Path(str(v)).expanduser()
 
 
 class LoggingConfig(BaseModel):
@@ -76,6 +83,12 @@ class LoggingConfig(BaseModel):
 class ChunkingConfig(BaseModel):
     size: int = Field(default=512, gt=0)
     overlap: int = Field(default=50, ge=0)
+
+    @model_validator(mode="after")
+    def overlap_must_be_less_than_size(self) -> Self:
+        if self.overlap >= self.size:
+            raise ValueError(f"overlap ({self.overlap}) must be less than size ({self.size})")
+        return self
 
 
 class RetrievalConfig(BaseModel):
@@ -112,11 +125,15 @@ class AppConfig(BaseModel):
 
 
 class TeamsConnectorConfig(BaseModel):
+    # Credentials (MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET) come from env vars —
+    # intentionally absent from this model; the connector reads them directly.
     enabled: bool = False
     sync_interval_minutes: int = Field(default=30, gt=0)
 
 
 class OutlookConnectorConfig(BaseModel):
+    # Credentials (MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET) come from env vars —
+    # intentionally absent from this model; the connector reads them directly.
     enabled: bool = False
     sync_interval_minutes: int = Field(default=15, gt=0)
     folders: list[str] = Field(default_factory=lambda: ["Inbox", "Sent Items"])
@@ -149,6 +166,8 @@ class JiraConnectorConfig(BaseModel):
     enabled: bool = False
     base_url: str | None = None
     sync_interval_minutes: int = Field(default=30, gt=0)
+    # NOTE: currentUser() resolves to the authenticated user in Jira JQL.
+    # This works for personal API tokens but may not apply to service accounts.
     jql_filter: str = "assignee = currentUser() ORDER BY updated DESC"
 
     @model_validator(mode="after")
