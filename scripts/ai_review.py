@@ -195,7 +195,11 @@ def upsert_pr_comment(
     client: httpx.Client, repo: str, pr_number: str, body: str
 ) -> None:
     """Create the review comment, or update it if one already exists."""
-    comment_id = find_existing_review_comment(client, repo, pr_number)
+    try:
+        comment_id = find_existing_review_comment(client, repo, pr_number)
+    except httpx.HTTPStatusError as exc:
+        log.error("comment_list_failed", status=exc.response.status_code)
+        sys.exit(1)
     if comment_id is not None:
         log.info("updating_existing_comment", comment_id=comment_id)
         response = client.patch(

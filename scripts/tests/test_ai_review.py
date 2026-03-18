@@ -197,6 +197,16 @@ def test_upsert_pr_comment_patches_existing_comment() -> None:
     assert "/comments/99" in str(calls[0].url)
 
 
+def test_upsert_pr_comment_exits_on_comment_list_error() -> None:
+    transport = httpx.MockTransport(lambda _request: httpx.Response(500))
+    client = httpx.Client(transport=transport)
+
+    with pytest.raises(SystemExit) as exc_info:
+        ai_review.upsert_pr_comment(client, "owner/repo", "42", "body")
+
+    assert exc_info.value.code == 1
+
+
 def test_upsert_pr_comment_posts_new_comment_when_none_exists() -> None:
     calls: list[httpx.Request] = []
 
