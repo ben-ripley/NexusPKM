@@ -8,7 +8,7 @@ import yaml
 from pydantic import ValidationError
 
 from nexuspkm.config import load_config
-from nexuspkm.config.loader import _apply_env_overrides, _deep_merge, _set_nested
+from nexuspkm.config.loader import _apply_env_overrides, _load_yaml, _set_nested
 from nexuspkm.config.models import (
     EmbeddingProviderConfig,
     JiraConnectorConfig,
@@ -142,7 +142,7 @@ def test_load_config_connectors(tmp_path: Path) -> None:
     )
     config = load_config(tmp_path)
     assert config.connectors.obsidian.enabled is True
-    assert config.connectors.obsidian.vault_path == "~/Notes"
+    assert config.connectors.obsidian.vault_path == Path("~/Notes").expanduser()
     assert config.connectors.teams.enabled is False
 
 
@@ -291,50 +291,6 @@ def test_no_api_key_fields_in_connector_configs() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _deep_merge
-# ---------------------------------------------------------------------------
-
-
-def test_deep_merge_non_overlapping_keys() -> None:
-    result = _deep_merge({"a": 1}, {"b": 2})
-    assert result == {"a": 1, "b": 2}
-
-
-def test_deep_merge_override_scalar() -> None:
-    result = _deep_merge({"a": 1}, {"a": 2})
-    assert result == {"a": 2}
-
-
-def test_deep_merge_nested_dicts() -> None:
-    base = {"a": {"x": 1, "y": 2}}
-    override = {"a": {"y": 99, "z": 3}}
-    result = _deep_merge(base, override)
-    assert result == {"a": {"x": 1, "y": 99, "z": 3}}
-
-
-def test_deep_merge_does_not_mutate_base() -> None:
-    base = {"a": {"x": 1}}
-    _deep_merge(base, {"a": {"x": 2}})
-    assert base == {"a": {"x": 1}}
-
-
-def test_deep_merge_override_dict_with_scalar() -> None:
-    """A scalar in override replaces a dict in base."""
-    result = _deep_merge({"a": {"x": 1}}, {"a": "scalar"})
-    assert result == {"a": "scalar"}
-
-
-def test_deep_merge_empty_override() -> None:
-    base = {"a": 1, "b": 2}
-    assert _deep_merge(base, {}) == base
-
-
-def test_deep_merge_empty_base() -> None:
-    override = {"a": 1}
-    assert _deep_merge({}, override) == override
-
-
-# ---------------------------------------------------------------------------
 # _set_nested
 # ---------------------------------------------------------------------------
 
@@ -436,7 +392,14 @@ def test_obsidian_raises_when_enabled_without_vault_path() -> None:
 
 def test_obsidian_valid_when_enabled_with_vault_path() -> None:
     config = ObsidianConnectorConfig(enabled=True, vault_path="~/Documents/Notes")
-    assert config.vault_path == "~/Documents/Notes"
+    assert config.vault_path == Path("~/Documents/Notes").expanduser()
+
+
+def test_obsidian_vault_path_is_expanded() -> None:
+    config = ObsidianConnectorConfig(vault_path="~/Notes")
+    assert config.vault_path == Path("~/Notes").expanduser()
+    assert config.vault_path is not None
+    assert not str(config.vault_path).startswith("~")
 
 
 # ---------------------------------------------------------------------------
@@ -472,3 +435,58 @@ def test_apply_env_overrides_ignores_double_delimiter(
     monkeypatch.setenv("NEXUSPKM_APP____PORT", "9000")
     result = _apply_env_overrides({})
     assert result.get("app") is None
+
+
+# ---------------------------------------------------------------------------
+# load_config — env-var-only startup (no config directory)
+# ---------------------------------------------------------------------------
+
+
+def test_load_config_succeeds_without_config_dir_when_env_vars_supply_required_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Config dir may not exist in containerised deployments — env vars are sufficient."""
+    nonexistent = tmp_path / "does_not_exist"
+    monkeypatch.setenv("NEXUSPKM_PROVIDERS__LLM__PRIMARY__PROVIDER", "openai")
+    monkeypatch.setenv("NEXUSPKM_PROVIDERS__LLM__PRIMARY__MODEL", "gpt-4o")
+    monkeypatch.setenv("NEXUSPKM_PROVIDERS__EMBEDDING__PRIMARY__PROVIDER", "openai")
+    monkeypatch.setenv("NEXUSPKM_PROVIDERS__EMBEDDING__PRIMARY__MODEL", "text-embedding-3-small")
+    config = load_config(nonexistent)
+    assert config.providers.llm.primary.provider == "openai"
+    assert config.providers.llm.primary.model == "gpt-4o"
+
+
+def test_load_config_raises_when_obsidian_enabled_via_env_without_vault_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Enabling Obsidian via env var without vault_path must fail validation."""
+    write_yaml(tmp_path / "providers.yaml", MINIMAL_PROVIDERS)
+    monkeypatch.setenv("NEXUSPKM_CONNECTORS__OBSIDIAN__ENABLED", "true")
+    with pytest.raises(ValidationError):
+        load_config(tmp_path)
+
+
+# ---------------------------------------------------------------------------
+# _load_yaml
+# ---------------------------------------------------------------------------
+
+
+def test_load_yaml_returns_empty_dict_for_missing_file(tmp_path: Path) -> None:
+    assert _load_yaml(tmp_path / "nonexistent.yaml") == {}
+
+
+def test_load_yaml_returns_empty_dict_for_empty_file(tmp_path: Path) -> None:
+    (tmp_path / "empty.yaml").write_text("")
+    assert _load_yaml(tmp_path / "empty.yaml") == {}
+
+
+def test_load_yaml_raises_on_malformed_yaml(tmp_path: Path) -> None:
+    (tmp_path / "bad.yaml").write_text("key: [unclosed")
+    with pytest.raises(ValueError, match="bad.yaml"):
+        _load_yaml(tmp_path / "bad.yaml")
+
+
+def test_load_yaml_raises_on_non_mapping_top_level(tmp_path: Path) -> None:
+    (tmp_path / "list.yaml").write_text("- item1\n- item2\n")
+    with pytest.raises(ValueError, match="list.yaml"):
+        _load_yaml(tmp_path / "list.yaml")

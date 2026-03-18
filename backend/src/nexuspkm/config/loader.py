@@ -38,6 +38,11 @@ log = structlog.get_logger()
 _ENV_PREFIX = "NEXUSPKM_"
 _ENV_DELIMITER = "__"
 
+# Absolute path to the project-level config/ directory, derived from this file's location.
+# This makes `load_config()` work correctly regardless of the process working directory.
+# Layout: backend/src/nexuspkm/config/loader.py → parents[4] == project root
+_DEFAULT_CONFIG_DIR = Path(__file__).parents[4] / "config"
+
 
 def _load_yaml(path: Path) -> dict[str, Any]:
     """Load a YAML file, returning an empty dict if it does not exist.
@@ -61,17 +66,6 @@ def _load_yaml(path: Path) -> dict[str, Any]:
             f"{path.name} must contain a YAML mapping at the top level, got {type(data).__name__}"
         )
     return data
-
-
-def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
-    """Recursively merge *override* into *base*, returning a new dict."""
-    result: dict[str, Any] = dict(base)
-    for key, value in override.items():
-        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
-            result[key] = _deep_merge(result[key], value)
-        else:
-            result[key] = value
-    return result
 
 
 def _set_nested(d: dict[str, Any], keys: list[str], value: str) -> None:
@@ -100,11 +94,10 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     which would split to ``[""]``) are silently ignored.
     """
     result: dict[str, Any] = copy.deepcopy(config)
-    prefix_len = len(_ENV_PREFIX)
     for name, value in os.environ.items():
         if not name.startswith(_ENV_PREFIX):
             continue
-        path = name[prefix_len:].lower().split(_ENV_DELIMITER)
+        path = name.removeprefix(_ENV_PREFIX).lower().split(_ENV_DELIMITER)
         # Skip malformed names that produce empty segments
         if any(segment == "" for segment in path):
             continue
@@ -112,15 +105,16 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def load_config(config_dir: Path = Path("config")) -> NexusPKMConfig:
+def load_config(config_dir: Path = _DEFAULT_CONFIG_DIR) -> NexusPKMConfig:
     """Load and validate the full application configuration.
 
     Args:
         config_dir: Directory containing providers.yaml, app.yaml, and
                     connectors.yaml.  Missing files are treated as empty
-                    (defaults apply).  The default value ``Path("config")``
-                    is relative to the process working directory, so callers
-                    should pass an absolute path in production use.
+                    (defaults apply).  Defaults to the project-level config/
+                    directory (absolute path derived from this file's location),
+                    so the default is safe regardless of the process working
+                    directory.  Pass an explicit path to override (e.g. in tests).
 
     Raises:
         ValueError: If a config file contains invalid YAML or a non-mapping

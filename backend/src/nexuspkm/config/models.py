@@ -7,9 +7,10 @@ Secrets (API keys, tokens) are intentionally absent from all models.
 They are read directly from environment variables by provider implementations.
 """
 
+from pathlib import Path
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 ProviderName = Literal["bedrock", "openai", "ollama", "openrouter", "lm_studio"]
 LogLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -124,11 +125,18 @@ class OutlookConnectorConfig(BaseModel):
 class ObsidianConnectorConfig(BaseModel):
     enabled: bool = False
     # No default: vault path must be configured explicitly (platform-specific path)
-    vault_path: str | None = None
+    vault_path: Path | None = None
     sync_interval_minutes: int = Field(default=5, gt=0)
     exclude_patterns: list[str] = Field(
         default_factory=lambda: [".obsidian/", ".trash/", "templates/"]
     )
+
+    @field_validator("vault_path", mode="before")
+    @classmethod
+    def expand_vault_path(cls, v: object) -> Path | None:
+        if v is None:
+            return None
+        return Path(str(v)).expanduser()
 
     @model_validator(mode="after")
     def vault_path_required_when_enabled(self) -> Self:
