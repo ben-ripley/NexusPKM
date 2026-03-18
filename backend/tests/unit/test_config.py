@@ -1,18 +1,20 @@
 """Tests for the configuration loading system (NXP-29)."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 from pydantic import ValidationError
 
 from nexuspkm.config import load_config
-from nexuspkm.config.loader import _deep_merge, _set_nested
+from nexuspkm.config.loader import _apply_env_overrides, _deep_merge, _set_nested
 from nexuspkm.config.models import (
     EmbeddingProviderConfig,
     JiraConnectorConfig,
     LLMProviderConfig,
     NexusPKMConfig,
+    ObsidianConnectorConfig,
     OutlookConnectorConfig,
     RetrievalConfig,
     TeamsConnectorConfig,
@@ -70,7 +72,7 @@ FULL_PROVIDERS = {
 }
 
 
-def write_yaml(path: Path, data: dict) -> None:
+def write_yaml(path: Path, data: dict[str, Any]) -> None:
     path.write_text(yaml.dump(data))
 
 
@@ -142,6 +144,12 @@ def test_load_config_connectors(tmp_path: Path) -> None:
     assert config.connectors.obsidian.enabled is True
     assert config.connectors.obsidian.vault_path == "~/Notes"
     assert config.connectors.teams.enabled is False
+
+
+def test_load_config_raises_on_non_mapping_yaml(tmp_path: Path) -> None:
+    (tmp_path / "providers.yaml").write_text("- just a list\n")
+    with pytest.raises(ValueError, match="providers.yaml"):
+        load_config(tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -245,10 +253,10 @@ def test_env_var_overrides_connector_enabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     write_yaml(tmp_path / "providers.yaml", MINIMAL_PROVIDERS)
-    write_yaml(tmp_path / "connectors.yaml", {"obsidian": {"enabled": False}})
-    monkeypatch.setenv("NEXUSPKM_CONNECTORS__OBSIDIAN__ENABLED", "true")
+    write_yaml(tmp_path / "connectors.yaml", {"teams": {"enabled": False}})
+    monkeypatch.setenv("NEXUSPKM_CONNECTORS__TEAMS__ENABLED", "true")
     config = load_config(tmp_path)
-    assert config.connectors.obsidian.enabled is True
+    assert config.connectors.teams.enabled is True
 
 
 def test_env_var_takes_precedence_over_yaml(
@@ -409,3 +417,58 @@ def test_retrieval_weights_sum_to_one() -> None:
 def test_retrieval_weights_validation_error_when_sum_not_one() -> None:
     with pytest.raises(ValidationError):
         RetrievalConfig(vector_weight=0.5, graph_weight=0.5, recency_weight=0.5)
+
+
+# ---------------------------------------------------------------------------
+# ObsidianConnectorConfig validators
+# ---------------------------------------------------------------------------
+
+
+def test_obsidian_vault_path_none_by_default() -> None:
+    config = ObsidianConnectorConfig()
+    assert config.vault_path is None
+
+
+def test_obsidian_raises_when_enabled_without_vault_path() -> None:
+    with pytest.raises(ValidationError):
+        ObsidianConnectorConfig(enabled=True)
+
+
+def test_obsidian_valid_when_enabled_with_vault_path() -> None:
+    config = ObsidianConnectorConfig(enabled=True, vault_path="~/Documents/Notes")
+    assert config.vault_path == "~/Documents/Notes"
+
+
+# ---------------------------------------------------------------------------
+# _apply_env_overrides
+# ---------------------------------------------------------------------------
+
+
+def test_apply_env_overrides_sets_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NEXUSPKM_PROVIDERS__LLM__PRIMARY__PROVIDER", "openai")
+    result = _apply_env_overrides({})
+    assert result["providers"]["llm"]["primary"]["provider"] == "openai"
+
+
+def test_apply_env_overrides_does_not_mutate_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("NEXUSPKM_PROVIDERS__LLM__PRIMARY__PROVIDER", "openai")
+    original: dict[str, Any] = {"providers": {"llm": {"primary": {"provider": "bedrock"}}}}
+    _apply_env_overrides(original)
+    # original must be unchanged (deep copy)
+    assert original["providers"]["llm"]["primary"]["provider"] == "bedrock"
+
+
+def test_apply_env_overrides_ignores_empty_segment(monkeypatch: pytest.MonkeyPatch) -> None:
+    # NEXUSPKM_=value produces path [""] — must be silently ignored
+    monkeypatch.setenv("NEXUSPKM_", "value")
+    result = _apply_env_overrides({})
+    assert "" not in result
+
+
+def test_apply_env_overrides_ignores_double_delimiter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # NEXUSPKM_APP____PORT produces path ["app", "", "port"] — ignored
+    monkeypatch.setenv("NEXUSPKM_APP____PORT", "9000")
+    result = _apply_env_overrides({})
+    assert result.get("app") is None

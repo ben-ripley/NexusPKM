@@ -11,12 +11,19 @@ Env var examples:
   NEXUSPKM_APP__SERVER__PORT=9000
   NEXUSPKM_CONNECTORS__OBSIDIAN__ENABLED=true
 
+When overriding retrieval weights via env vars, all three must be set
+together so that they continue to sum to 1.0:
+  NEXUSPKM_APP__RETRIEVAL__VECTOR_WEIGHT=0.7
+  NEXUSPKM_APP__RETRIEVAL__GRAPH_WEIGHT=0.2
+  NEXUSPKM_APP__RETRIEVAL__RECENCY_WEIGHT=0.1
+
 Note: ``load_config`` performs synchronous filesystem I/O and is intended
 to be called exactly once at process startup, before the async event loop
 begins (e.g., in a synchronous ``lifespan`` setup block).  Do not call it
 from within an async request handler or coroutine.
 """
 
+import copy
 import os
 from pathlib import Path
 from typing import Any
@@ -36,17 +43,24 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     """Load a YAML file, returning an empty dict if it does not exist.
 
     Raises:
-        ValueError: If the file exists but contains invalid YAML, with the
-                    file path included in the message for easy diagnosis.
+        ValueError: If the file exists but contains invalid YAML, or if its
+                    top-level value is not a mapping (e.g., a bare scalar or list).
     """
     if not path.exists():
         log.debug("config_file_not_found_using_defaults", path=str(path))
         return {}
     with path.open() as f:
         try:
-            return yaml.safe_load(f) or {}
+            data = yaml.safe_load(f)
         except yaml.YAMLError as exc:
             raise ValueError(f"Failed to parse {path.name}: {exc}") from exc
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"{path.name} must contain a YAML mapping at the top level, got {type(data).__name__}"
+        )
+    return data
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -77,17 +91,23 @@ def _set_nested(d: dict[str, Any], keys: list[str], value: str) -> None:
 def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
     """Apply NEXUSPKM_* environment variables onto the config dict.
 
-    Variables use double-underscore as the nesting delimiter and are
-    lowercased to match model field names.  Type coercion is left to
-    Pydantic at validation time.
+    Returns a deep copy of *config* with overrides applied so the original
+    dicts (from YAML) are never mutated.  Variables use double-underscore as
+    the nesting delimiter and are lowercased to match model field names.
+    Type coercion is left to Pydantic at validation time.
+
+    Env var names that produce empty path segments (e.g., ``NEXUSPKM_=value``,
+    which would split to ``[""]``) are silently ignored.
     """
-    result = dict(config)
+    result: dict[str, Any] = copy.deepcopy(config)
     prefix_len = len(_ENV_PREFIX)
     for name, value in os.environ.items():
         if not name.startswith(_ENV_PREFIX):
             continue
-        # Strip prefix and split on double-underscore
-        path = name[prefix_len:].lower().split(_ENV_DELIMITER.lower())
+        path = name[prefix_len:].lower().split(_ENV_DELIMITER)
+        # Skip malformed names that produce empty segments
+        if any(segment == "" for segment in path):
+            continue
         _set_nested(result, path, value)
     return result
 
@@ -98,13 +118,20 @@ def load_config(config_dir: Path = Path("config")) -> NexusPKMConfig:
     Args:
         config_dir: Directory containing providers.yaml, app.yaml, and
                     connectors.yaml.  Missing files are treated as empty
-                    (defaults apply).
+                    (defaults apply).  The default value ``Path("config")``
+                    is relative to the process working directory, so callers
+                    should pass an absolute path in production use.
 
     Raises:
-        ValueError: If a config file contains invalid YAML.
+        ValueError: If a config file contains invalid YAML or a non-mapping
+                    top-level value.
         ValidationError: If the resulting configuration fails Pydantic validation.
     """
-    log.debug("loading_config", config_dir=str(config_dir))
+    if not config_dir.exists():
+        log.warning("config_dir_not_found_using_all_defaults", config_dir=str(config_dir))
+    else:
+        log.debug("loading_config", config_dir=str(config_dir))
+
     providers_data = _load_yaml(config_dir / "providers.yaml")
     app_data = _load_yaml(config_dir / "app.yaml")
     connectors_data = _load_yaml(config_dir / "connectors.yaml")

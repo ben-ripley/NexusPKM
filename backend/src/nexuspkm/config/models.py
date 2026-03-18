@@ -88,7 +88,11 @@ class RetrievalConfig(BaseModel):
         total = self.vector_weight + self.graph_weight + self.recency_weight
         if abs(total - 1.0) > 1e-6:
             raise ValueError(
-                f"vector_weight + graph_weight + recency_weight must equal 1.0, got {total}"
+                f"vector_weight + graph_weight + recency_weight must equal 1.0, got {total}. "
+                "When overriding weights via env vars, set all three together: "
+                "NEXUSPKM_APP__RETRIEVAL__VECTOR_WEIGHT, "
+                "NEXUSPKM_APP__RETRIEVAL__GRAPH_WEIGHT, "
+                "NEXUSPKM_APP__RETRIEVAL__RECENCY_WEIGHT."
             )
         return self
 
@@ -119,11 +123,18 @@ class OutlookConnectorConfig(BaseModel):
 
 class ObsidianConnectorConfig(BaseModel):
     enabled: bool = False
-    vault_path: str = "~/Documents/Obsidian"
+    # No default: vault path must be configured explicitly (platform-specific path)
+    vault_path: str | None = None
     sync_interval_minutes: int = Field(default=5, gt=0)
     exclude_patterns: list[str] = Field(
         default_factory=lambda: [".obsidian/", ".trash/", "templates/"]
     )
+
+    @model_validator(mode="after")
+    def vault_path_required_when_enabled(self) -> Self:
+        if self.enabled and not self.vault_path:
+            raise ValueError("vault_path is required when obsidian connector is enabled")
+        return self
 
 
 class JiraConnectorConfig(BaseModel):

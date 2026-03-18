@@ -5,6 +5,7 @@ from .models import (
     AppConfig,
     ConnectorsConfig,
     NexusPKMConfig,
+    ProviderName,
     ProvidersConfig,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "AppConfig",
     "ConnectorsConfig",
     "NexusPKMConfig",
+    "ProviderName",
     "ProvidersConfig",
 ]
