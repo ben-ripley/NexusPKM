@@ -8,9 +8,7 @@ Spec: F-007 FR-1
 
 from __future__ import annotations
 
-from datetime import datetime
-
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
 from nexuspkm.models.document import SourceType
 from nexuspkm.models.entity import EntitySummary, EntityType
@@ -18,8 +16,8 @@ from nexuspkm.models.entity import EntitySummary, EntityType
 
 class SearchFilters(BaseModel):
     source_types: list[SourceType] | None = None
-    date_from: datetime | None = None
-    date_to: datetime | None = None
+    date_from: AwareDatetime | None = None
+    date_to: AwareDatetime | None = None
     entities: list[str] | None = None
     tags: list[str] | None = None
 
@@ -27,12 +25,12 @@ class SearchFilters(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     filters: SearchFilters | None = None
-    top_k: int = 20
+    top_k: int = Field(default=20, ge=1)
     include_graph_expansion: bool = True
 
 
 class DateBucket(BaseModel):
-    date: datetime
+    date: AwareDatetime
     count: int
 
 
@@ -61,7 +59,7 @@ class SearchResult(BaseModel):
     source_type: SourceType
     source_id: str
     relevance_score: float
-    created_at: datetime
+    created_at: AwareDatetime
     url: str | None = None
     matched_entities: list[EntitySummary] = []
     related_documents: list[str] = []

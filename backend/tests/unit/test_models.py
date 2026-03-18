@@ -600,6 +600,18 @@ class TestSearchRequest:
         assert req.top_k == 5
         assert req.include_graph_expansion is False
 
+    def test_top_k_zero_raises(self) -> None:
+        from nexuspkm.models.search import SearchRequest
+
+        with pytest.raises(ValidationError):
+            SearchRequest(query="q", top_k=0)
+
+    def test_top_k_negative_raises(self) -> None:
+        from nexuspkm.models.search import SearchRequest
+
+        with pytest.raises(ValidationError):
+            SearchRequest(query="q", top_k=-1)
+
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.search import SearchRequest
 

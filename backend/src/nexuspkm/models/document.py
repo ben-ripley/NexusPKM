@@ -12,10 +12,9 @@ Spec: F-002 FR-1, FR-4, FR-5
 
 from __future__ import annotations
 
-from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel
+from pydantic import AwareDatetime, BaseModel
 
 
 class SourceType(StrEnum):
@@ -42,9 +41,9 @@ class DocumentMetadata(BaseModel):
     participants: list[str] = []
     tags: list[str] = []
     url: str | None = None
-    created_at: datetime
-    updated_at: datetime
-    synced_at: datetime
+    created_at: AwareDatetime
+    updated_at: AwareDatetime
+    synced_at: AwareDatetime
     custom: dict[str, object] = {}
 
 
@@ -63,7 +62,7 @@ class SourceAttribution(BaseModel):
     source_id: str
     excerpt: str
     relevance_score: float
-    created_at: datetime
+    created_at: AwareDatetime
     url: str | None = None
     participants: list[str] = []
 
@@ -76,7 +75,7 @@ class ChunkResult(BaseModel):
     source_type: SourceType
     source_id: str
     title: str
-    created_at: datetime
+    created_at: AwareDatetime
 
 
 class EntityResult(BaseModel):
