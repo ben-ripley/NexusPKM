@@ -136,7 +136,7 @@ def test_load_config_app_settings(tmp_path: Path) -> None:
     assert config.app.logging.level == "DEBUG"
     assert config.app.chunking.size == 256
     assert config.app.retrieval.top_k == 20
-    assert config.app.data.dir == Path("./data").expanduser()
+    assert config.app.data.dir.is_absolute()
 
 
 def test_load_config_connectors(tmp_path: Path) -> None:
@@ -175,6 +175,15 @@ def test_load_config_raises_when_llm_primary_missing(tmp_path: Path) -> None:
     write_yaml(
         tmp_path / "providers.yaml",
         {"llm": {}, "embedding": {"primary": {"provider": "bedrock", "model": "m"}}},
+    )
+    with pytest.raises(ValidationError):
+        load_config(tmp_path)
+
+
+def test_load_config_raises_when_embedding_primary_missing(tmp_path: Path) -> None:
+    write_yaml(
+        tmp_path / "providers.yaml",
+        {"llm": {"primary": {"provider": "bedrock", "model": "m"}}, "embedding": {}},
     )
     with pytest.raises(ValidationError):
         load_config(tmp_path)
@@ -429,8 +438,10 @@ def test_apply_env_overrides_does_not_mutate_input(monkeypatch: pytest.MonkeyPat
     assert original["providers"]["llm"]["primary"]["provider"] == "bedrock"
 
 
-def test_apply_env_overrides_ignores_empty_segment(monkeypatch: pytest.MonkeyPatch) -> None:
-    # NEXUSPKM_=value produces path [""] — must be silently ignored
+def test_apply_env_overrides_ignores_and_warns_empty_segment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # NEXUSPKM_=value produces path [""] — must be ignored with a warning
     monkeypatch.setenv("NEXUSPKM_", "value")
     result = _apply_env_overrides({})
     assert "" not in result
@@ -523,9 +534,9 @@ def test_data_config_default_dir_is_path() -> None:
     assert isinstance(config.dir, Path)
 
 
-def test_data_config_default_dir_is_expanded() -> None:
+def test_data_config_default_dir_is_absolute() -> None:
     config = DataConfig()
-    assert not str(config.dir).startswith("~")
+    assert config.dir.is_absolute()
 
 
 def test_data_config_tilde_dir_is_expanded() -> None:

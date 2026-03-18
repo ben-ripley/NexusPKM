@@ -66,8 +66,13 @@ class ServerConfig(BaseModel):
     port: int = Field(default=8000, gt=0, le=65535)
 
 
+# Absolute path to the project-level data/ directory, derived from this file's location.
+# Layout: backend/src/nexuspkm/config/models.py → parents[4] == project root
+_DEFAULT_DATA_DIR = Path(__file__).parents[4] / "data"
+
+
 class DataConfig(BaseModel):
-    dir: Path = Path("./data")
+    dir: Path = _DEFAULT_DATA_DIR
 
     @field_validator("dir", mode="before")
     @classmethod

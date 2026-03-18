@@ -102,6 +102,7 @@ def _apply_env_overrides(config: dict[str, Any]) -> dict[str, Any]:
         path = name.removeprefix(_ENV_PREFIX).lower().split(_ENV_DELIMITER)
         # Skip malformed names that produce empty segments
         if any(segment == "" for segment in path):
+            log.warning("env_var_ignored_empty_path_segment", name=name)
             continue
         _set_nested(result, path, value)
     return result
