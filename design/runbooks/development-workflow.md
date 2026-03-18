@@ -181,7 +181,7 @@ EOF
 
 - User reviews the PR
 - If approved → merge to `main`
-- If changes requested → address feedback, push, return to Step 10
+- If changes requested → address feedback, push, return to Step 11 (local AI review)
 
 ### Step 16: AI Review (Automated)
 
@@ -189,7 +189,7 @@ The PR triggers the `ai-review.yml` GitHub Action:
 1. Action fetches the PR diff
 2. Claude API reviews for: architecture compliance, security, bugs, test coverage, spec adherence
 3. Review posted as a PR comment
-4. If critical issues found → fix and push (returns to Step 10)
+4. If critical issues found → fix and push (returns to Step 11)
 
 ### Step 17: Mark Jira Issue Complete
 

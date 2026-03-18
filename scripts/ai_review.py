@@ -25,7 +25,9 @@ import structlog
 
 MAX_DIFF_CHARS = 100_000
 MAX_TOKENS = 8192
-# Bedrock cross-region inference profile (us.* prefix) — override via BEDROCK_MODEL_ID env var
+BEDROCK_TIMEOUT = 60.0
+# The us.* prefix selects a Bedrock cross-region inference profile, which routes the
+# request across multiple AWS regions for higher availability. Override via BEDROCK_MODEL_ID.
 DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-6"
 # HTML sentinel used to find and update the existing review comment.
 # GitHub renders <!-- … --> as invisible, but the API still returns it in `body`,
@@ -125,7 +127,7 @@ def _truncate_diff(diff: str) -> str:
 def _call_claude(diff: str, model: str, aws_region: str) -> str:
     """Send diff to Claude via Bedrock and return the review text."""
     log.info("sending_to_claude", chars=len(diff), model=model)
-    bedrock = anthropic.AnthropicBedrock(aws_region=aws_region, timeout=60.0)
+    bedrock = anthropic.AnthropicBedrock(aws_region=aws_region, timeout=BEDROCK_TIMEOUT)
     try:
         message = bedrock.messages.create(
             model=model,
@@ -159,6 +161,7 @@ def get_local_diff() -> str:
 
 
 def get_pr_diff(client: httpx.Client, repo: str, pr_number: str) -> str:
+    """Fetch the unified diff for a GitHub pull request."""
     response = client.get(
         f"{GITHUB_API_BASE}/repos/{repo}/pulls/{pr_number}",
         headers={"Accept": "application/vnd.github.v3.diff"},

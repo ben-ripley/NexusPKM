@@ -66,6 +66,17 @@ def test_call_claude_returns_review_text() -> None:
     mock_bedrock.assert_called_once_with(aws_region="us-east-1", timeout=60.0)
 
 
+def test_call_claude_returns_text_and_warns_when_max_tokens_reached() -> None:
+    with patch("anthropic.AnthropicBedrock") as mock_bedrock:
+        mock_bedrock.return_value.messages.create.return_value = MagicMock(
+            stop_reason="max_tokens",
+            content=[TextBlock(text="truncated review", type="text")],
+        )
+        result = ai_review._call_claude("some diff", "test-model", "us-east-1")
+
+    assert result == "truncated review"
+
+
 def test_call_claude_exits_on_api_error() -> None:
     exc = anthropic.APIConnectionError(
         message="connection failed",
