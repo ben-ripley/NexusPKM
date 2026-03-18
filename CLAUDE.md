@@ -101,4 +101,5 @@ Follow these steps **in order** for every Jira issue worked on:
 - @design/adrs/ — architectural decisions and rationale
 - @design/specs/ — detailed feature specifications
 - @design/runbooks/development-workflow.md — complete dev workflow
-- @design/implementation-plan.md — Jira issue breakdown with dependencies
+- @design/implementation-plan.md — phase overview and epic dependency graph
+- @design/phases/ — per-phase Jira key index (Jira is source of truth for issue detail)
