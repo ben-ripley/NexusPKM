@@ -112,7 +112,25 @@ cd frontend && npx vitest run
 
 If the application can be started, run it and verify integration behavior manually.
 
-### Step 11: Commit Locally
+### Step 11: Run Local AI Review
+
+Before committing, run the AI reviewer against the local diff to catch issues early:
+
+```bash
+python scripts/ai_review.py --local
+```
+
+Requires `AWS_DEFAULT_REGION` to be set (and optionally `BEDROCK_MODEL_ID`).
+Does **not** require `REPO`, `PR_NUMBER`, or `GITHUB_TOKEN` — it diffs the current branch
+against `origin/main` and prints the review to stdout.
+
+- Address any **Critical** findings before committing.
+- Use judgement on **Warnings** — fix or note in the commit message.
+- **Info** items are optional.
+
+This avoids the push → PR → wait → fix → push cycle for issues Claude would catch anyway.
+
+### Step 12: Commit Locally
 
 ```bash
 git add {specific files}
@@ -126,7 +144,7 @@ Commit message rules:
 - No `Co-Authored-By` line
 - Stage specific files — do not use `git add -A` blindly
 
-### Step 12: Create Pull Request
+### Step 13: Create Pull Request
 
 ```bash
 git push -u origin feature/NXP-{id}-{description}
@@ -155,25 +173,25 @@ EOF
 )"
 ```
 
-### Step 13: Transition Jira to In Review
+### Step 14: Transition Jira to In Review
 
 - Transition the Jira issue to **In Review** (transition ID `31`)
 
-### Step 14: User Reviews and Merges
+### Step 15: User Reviews and Merges
 
 - User reviews the PR
 - If approved → merge to `main`
-- If changes requested → address feedback, push, return to Step 10
+- If changes requested → address feedback, push, return to Step 11 (local AI review)
 
-### Step 15: AI Review (Automated)
+### Step 16: AI Review (Automated)
 
 The PR triggers the `ai-review.yml` GitHub Action:
 1. Action fetches the PR diff
 2. Claude API reviews for: architecture compliance, security, bugs, test coverage, spec adherence
 3. Review posted as a PR comment
-4. If critical issues found → fix and push (returns to Step 10)
+4. If critical issues found → fix and push (returns to Step 11)
 
-### Step 16: Mark Jira Issue Complete
+### Step 17: Mark Jira Issue Complete
 
 After PR is merged:
 - Transition Jira issue to **Done** (transition ID `41`)

@@ -56,14 +56,15 @@ Follow these steps **in order** for every Jira issue worked on:
 5. **Update design docs if needed** — if the work involves functionality not covered in `design/` (adrs/, architecture/, specs/), update the relevant design docs before implementing.
 6. **TDD: write tests first** — write failing tests before writing implementation code. Red → Green → Refactor.
 7. **Review before committing** — run type checking, linting, and all tests. If the application can be started, verify integration tests pass too.
-8. **Commit locally** — use this exact format (no Co-Authored-By):
+8. **Run local AI review** — `python scripts/ai_review.py --local` — read the output and address any Critical findings before committing.
+9. **Commit locally** — use this exact format (no Co-Authored-By):
    ```
    feat(NXP-{id}): {short description}
 
    {One or two sentences summarizing what the change does and why.}
    ```
-9. **Create a pull request** — summarize the changes, reference the Jira issue and spec.
-10. **Transition Jira to In Review** — transition the issue to "In Review" (transition ID `31`).
+10. **Create a pull request** — summarize the changes, reference the Jira issue and spec.
+11. **Transition Jira to In Review** — transition the issue to "In Review" (transition ID `31`).
 
 ### Development Rules
 
