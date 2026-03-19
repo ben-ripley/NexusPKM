@@ -50,6 +50,10 @@ def mock_index() -> MagicMock:
 def engine_client(mock_index: MagicMock) -> Generator[TestClient, None, None]:
     app.dependency_overrides[get_knowledge_index] = lambda: mock_index
     try:
+        # TestClient is NOT used as a context manager here intentionally.
+        # Starlette 0.52 only runs the lifespan inside `with TestClient(app)`.
+        # Without the context manager, the lifespan doesn't run and our
+        # dependency override is not overwritten by the real initialisation.
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_knowledge_index, None)
@@ -64,7 +68,8 @@ def test_ingest_valid_document(engine_client: TestClient, mock_index: MagicMock)
 
 
 def test_ingest_invalid_document(engine_client: TestClient) -> None:
-    response = engine_client.post("/api/engine/ingest", json={"id": "", "content": ""})
+    # Missing required `metadata` field — unambiguously invalid regardless of validators
+    response = engine_client.post("/api/engine/ingest", json={"id": "doc-1", "content": "text"})
     assert response.status_code == 422
 
 

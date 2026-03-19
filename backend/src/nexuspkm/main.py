@@ -31,8 +31,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     data_dir = config.app.data.dir
     embed_dim = config.providers.embedding.primary.dimensions
     embedding_provider = _registry.get_embedding()
+    # VectorStore.__init__ is lazy (no disk I/O); GraphStore.__init__ opens the
+    # Kuzu database and runs schema DDL, so it must be offloaded to a thread.
     _vector_store = VectorStore(db_path=str(data_dir / "lancedb"), dimensions=embed_dim)
-    _graph_store = GraphStore(db_path=data_dir / "kuzu")
+    _graph_store = await asyncio.to_thread(GraphStore, data_dir / "kuzu")
     _knowledge_index = KnowledgeIndex(_vector_store, _graph_store, embedding_provider)
     app.dependency_overrides[get_knowledge_index] = lambda: _knowledge_index
 
@@ -46,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if _vector_store:
         await _vector_store.close()
     if _graph_store:
-        _graph_store.close()
+        await asyncio.to_thread(_graph_store.close)
     _registry = None
     _knowledge_index = None
     _vector_store = None

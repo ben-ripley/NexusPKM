@@ -40,9 +40,7 @@ def get_knowledge_index() -> KnowledgeIndex:
 
     Replaced via app.dependency_overrides in main.py's lifespan.
     """
-    raise HTTPException(  # pragma: no cover
-        status_code=503, detail="Knowledge index not initialised"
-    )
+    raise HTTPException(status_code=503, detail="Knowledge index not initialised")
 
 
 @router.post("/ingest")
@@ -61,14 +59,21 @@ async def ingest_document(
 async def get_stats(
     index: Annotated[KnowledgeIndex, Depends(get_knowledge_index)],
 ) -> EngineStats:
-    raw = await index.stats()
-    return EngineStats(**raw)
+    try:
+        raw = await index.stats()
+        return EngineStats(**raw)
+    except Exception as exc:
+        log.error("engine_stats_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to retrieve engine stats") from exc
 
 
 @router.get("/status")
 async def get_status(
     index: Annotated[KnowledgeIndex, Depends(get_knowledge_index)],
 ) -> EngineStatus:
+    # TODO: return real extraction queue depth once the queue is implemented (NXP-5x).
+    # `index` is intentionally kept as a dependency so this endpoint returns 503
+    # when the engine is unavailable, consistent with all other engine endpoints.
     return EngineStatus(status="idle", queue_size=0)
 
 
@@ -77,4 +82,5 @@ async def reindex(
     request: ReindexRequest,
     index: Annotated[KnowledgeIndex, Depends(get_knowledge_index)],
 ) -> ReindexResponse:
+    # TODO: implement full reindex once the raw-document store is available (NXP-5x).
     return ReindexResponse(status="completed", reindexed=0)
