@@ -52,11 +52,12 @@ async def stores(
     tmp_path: Path,
 ) -> AsyncGenerator[tuple[VectorStore, GraphStore], None]:
     vs = VectorStore(db_path=str(tmp_path / "lancedb"), dimensions=DIM)
-    await vs._open()
     gs = GraphStore(db_path=tmp_path / "kuzu")
-    yield vs, gs
-    await vs.close()
-    gs.close()
+    try:
+        yield vs, gs
+    finally:
+        await vs.close()
+        gs.close()
 
 
 @pytest.fixture

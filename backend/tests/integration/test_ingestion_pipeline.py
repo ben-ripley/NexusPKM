@@ -47,16 +47,17 @@ def _make_doc(
 @pytest.fixture
 async def pipeline(tmp_path: Path) -> AsyncGenerator[IngestionPipeline, None]:
     vs = VectorStore(db_path=str(tmp_path / "lancedb"), dimensions=DIM)
-    await vs._open()
     gs = GraphStore(db_path=tmp_path / "kuzu")
 
     embedding_provider = MagicMock()
     embedding_provider.embed = AsyncMock(side_effect=lambda texts: _fake_embed(texts))
 
     pipe = IngestionPipeline(vs, gs, embedding_provider)
-    yield pipe
-    await vs.close()
-    gs.close()
+    try:
+        yield pipe
+    finally:
+        await vs.close()
+        gs.close()
 
 
 class TestIngestionPipeline:

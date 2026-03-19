@@ -85,6 +85,8 @@ class IngestionPipeline:
         await self._vector_store.store(chunks)
 
         # 4. Upsert DocumentNode in Kuzu (sync → executor)
+        # If this fails, roll back the vector store write so we don't leave
+        # chunks in LanceDB with no corresponding DocumentNode in Kuzu.
         doc_node = DocumentNode(
             id=document.id,
             title=document.metadata.title,
@@ -93,7 +95,15 @@ class IngestionPipeline:
             created_at=document.metadata.created_at,
         )
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._graph_upsert, doc_node)
+        try:
+            await loop.run_in_executor(None, self._graph_upsert, doc_node)
+        except Exception:
+            log.error("ingestion.graph_upsert_failed", exc_info=True, document_id=document.id)
+            try:
+                await self._vector_store.delete(document.id)
+            except Exception:
+                log.error("ingestion.rollback_failed", exc_info=True, document_id=document.id)
+            raise
 
         # 5. Return updated Document
         updated = Document(

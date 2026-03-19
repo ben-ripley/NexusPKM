@@ -37,7 +37,7 @@ def _make_chunk(
     )
 
 
-def _make_retriever() -> tuple[HybridRetriever, MagicMock, MagicMock, AsyncMock]:
+def _make_retriever() -> tuple[HybridRetriever, MagicMock, MagicMock, MagicMock]:
     vector_store = MagicMock()
     graph_store = MagicMock()
     embedding_provider = MagicMock()

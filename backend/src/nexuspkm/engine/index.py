@@ -32,7 +32,10 @@ _SAFE_CYPHER_LABEL_RE: re.Pattern[str] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 # Node tables that count as "entities" (excludes Document)
 _ENTITY_TABLES = ("Person", "Project", "Topic", "Decision", "ActionItem", "Meeting")
 
-# Mapping needed for relationship count queries
+# Mapping needed for relationship count queries.
+# Must be kept in sync with _REL_DDL / _REL_TABLE_MAP in graph_store.py.
+# Adding a new relationship type to the Kuzu schema without updating this dict
+# will silently undercount relationships in stats().
 _REL_TABLE_ENDPOINTS: dict[str, tuple[str, str]] = {
     "ATTENDED": ("Person", "Meeting"),
     "MENTIONED_IN": ("Person", "Document"),

@@ -45,7 +45,6 @@ def _make_doc(doc_id: str = "d1", title: str = "Test Note") -> Document:
 @pytest.fixture
 async def index(tmp_path: Path) -> AsyncGenerator[KnowledgeIndex, None]:
     vs = VectorStore(db_path=str(tmp_path / "lancedb"), dimensions=DIM)
-    await vs._open()
     gs = GraphStore(db_path=tmp_path / "kuzu")
 
     embedding_provider = MagicMock()
@@ -54,9 +53,11 @@ async def index(tmp_path: Path) -> AsyncGenerator[KnowledgeIndex, None]:
     embedding_provider.dimension = DIM
 
     ki = KnowledgeIndex(vs, gs, embedding_provider)
-    yield ki
-    await vs.close()
-    gs.close()
+    try:
+        yield ki
+    finally:
+        await vs.close()
+        gs.close()
 
 
 class TestKnowledgeIndexInsert:

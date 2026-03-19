@@ -36,6 +36,12 @@ _VECTOR_WEIGHT = 0.6
 _GRAPH_WEIGHT = 0.3
 _RECENCY_WEIGHT = 0.1
 
+# Maximum characters included in a SourceAttribution excerpt (spec: F-002 FR-5)
+_EXCERPT_MAX_CHARS: int = 200
+
+# Maximum query characters written to structured logs (avoids PII / log bloat)
+_LOG_QUERY_MAX_LEN: int = 80
+
 
 class _GraphData(NamedTuple):
     boost: dict[str, float]
@@ -72,7 +78,7 @@ class HybridRetriever:
         filters: SearchFilters | None = None,
     ) -> RetrievalResult:
         """Hybrid retrieval: embed query → vector search → graph expansion → merge."""
-        log = logger.bind(query=query[:80], top_k=top_k)
+        log = logger.bind(query=query[:_LOG_QUERY_MAX_LEN], top_k=top_k)
         log.info("retrieval.start")
 
         # 1. Embed query
@@ -140,7 +146,7 @@ class HybridRetriever:
                 title=chunk.title,
                 source_type=chunk.source_type,
                 source_id=chunk.source_id,
-                excerpt=chunk.text[:200],
+                excerpt=chunk.text[:_EXCERPT_MAX_CHARS],
                 relevance_score=score,
                 created_at=chunk.created_at,
             )
@@ -163,7 +169,14 @@ class HybridRetriever:
     # ------------------------------------------------------------------
 
     def _fetch_graph_data(self, doc_ids: list[str]) -> _GraphData:
-        """Query graph store for boost data and entity/relationship context."""
+        """Query graph store for boost data and entity/relationship context.
+
+        The lock is held for the full loop over doc_ids. For a local single-user
+        deployment the default result set (top_k * 2 = 20 docs, each requiring
+        two lightweight Kuzu lookups) holds the lock for ~2 ms in practice.
+        For multi-user deployments consider batching these into a single Cypher
+        query to reduce lock hold time.
+        """
         with self._graph_lock:
             boost: dict[str, float] = {}
             entities: list[EntityResult] = []
