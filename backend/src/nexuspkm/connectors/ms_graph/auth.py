@@ -17,15 +17,25 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 from pathlib import Path
 from typing import TypedDict
 
 import structlog
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from msal import PublicClientApplication, SerializableTokenCache
 from pydantic import BaseModel
 
 logger = structlog.get_logger(__name__)
+
+# Tenant IDs are either UUIDs or domain-style names (e.g. contoso.onmicrosoft.com).
+# This guards against path-traversal characters being interpolated into the authority URL.
+_TENANT_ID_RE = re.compile(
+    r"^(?:"
+    r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"  # UUID
+    r"|[a-zA-Z0-9][a-zA-Z0-9.\-]{0,253}"  # domain or named tenant
+    r")$"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -34,11 +44,7 @@ logger = structlog.get_logger(__name__)
 
 
 class DeviceFlowDict(TypedDict, total=True):
-    """Required fields always present in MSAL's initiate_device_flow response.
-
-    This type is part of the public API — callers receive it from
-    ``initiate_device_code_flow()`` and pass it back to ``poll_for_token()``.
-    """
+    """Required fields always present in a successful MSAL initiate_device_flow response."""
 
     user_code: str
     device_code: str
@@ -72,6 +78,29 @@ class DeviceCodeInfo(BaseModel):
     message: str
 
 
+class AuthFlowContext:
+    """Opaque context returned by ``initiate_device_code_flow``; pass it to ``poll_for_token``.
+
+    Bundles the MSAL app, its token cache, and the device flow dict so that
+    ``poll_for_token`` uses the exact same app instance that initiated the flow,
+    eliminating any shared mutable state on ``MicrosoftGraphAuth``.
+
+    Treat this as an opaque token — do not inspect or modify the internals.
+    """
+
+    __slots__ = ("_flow", "_app", "_cache")
+
+    def __init__(
+        self,
+        flow: DeviceFlowDict,
+        app: PublicClientApplication,
+        cache: SerializableTokenCache,
+    ) -> None:
+        self._flow = flow
+        self._app = app
+        self._cache = cache
+
+
 # ---------------------------------------------------------------------------
 # Auth class
 # ---------------------------------------------------------------------------
@@ -91,12 +120,6 @@ class MicrosoftGraphAuth:
         self._token_dir = token_dir
         self._key_file = token_dir / "token.key"
         self._cache_file = token_dir / "ms_graph.json"
-        # Preserved across initiate_device_code_flow → poll_for_token to ensure
-        # the same MSAL app instance (and matching cache) is used for both calls.
-        # Note: calling initiate_device_code_flow a second time before polling
-        # overwrites these fields; the abandoned flow's app/cache are released.
-        self._pending_app: PublicClientApplication | None = None
-        self._pending_cache: SerializableTokenCache | None = None
 
     # ------------------------------------------------------------------
     # Internal helpers  (sync — must only be called inside run_in_executor)
@@ -138,7 +161,12 @@ class MicrosoftGraphAuth:
         return key
 
     def _load_token_cache(self) -> SerializableTokenCache:
-        """Return a populated MSAL token cache, or an empty one if no file exists."""
+        """Return a populated MSAL token cache, or an empty one if no file exists.
+
+        Only ``InvalidToken``, ``ValueError``, and ``FileNotFoundError`` are
+        swallowed (expected decryption/deserialization failures). All other
+        exceptions propagate so unexpected errors are not silently masked.
+        """
         cache = SerializableTokenCache()
         if not self._cache_file.exists():
             return cache
@@ -149,7 +177,7 @@ class MicrosoftGraphAuth:
             encrypted = self._cache_file.read_bytes()
             serialized = fernet.decrypt(encrypted).decode()
             cache.deserialize(serialized)
-        except Exception:
+        except (InvalidToken, ValueError, FileNotFoundError):
             logger.warning(
                 "ms_graph_auth.cache_load_failed",
                 path=str(self._cache_file),
@@ -192,13 +220,19 @@ class MicrosoftGraphAuth:
         Reads ``MS_TENANT_ID`` and ``MS_CLIENT_ID`` from environment variables.
 
         Raises:
-            ValueError: if either required environment variable is missing.
+            ValueError: if either required env var is missing or ``MS_TENANT_ID``
+                contains characters that could be interpolated into the authority URL.
         """
         tenant_id = os.environ.get("MS_TENANT_ID")
         client_id = os.environ.get("MS_CLIENT_ID")
 
         if not tenant_id:
             raise ValueError("MS_TENANT_ID environment variable is required")
+        if not _TENANT_ID_RE.match(tenant_id):
+            raise ValueError(
+                f"MS_TENANT_ID has an invalid format: {tenant_id!r}. "
+                "Expected a UUID or a domain name."
+            )
         if not client_id:
             raise ValueError("MS_CLIENT_ID environment variable is required")
 
@@ -233,7 +267,8 @@ class MicrosoftGraphAuth:
                 self.SCOPES, account=accounts[0]
             )
             if result and "access_token" in result:
-                self._save_token_cache(cache)
+                if cache.has_state_changed:
+                    self._save_token_cache(cache)
                 logger.info("ms_graph_auth.silent_token_acquired")
                 return True
 
@@ -242,30 +277,41 @@ class MicrosoftGraphAuth:
 
         return await loop.run_in_executor(None, _silent_acquire)
 
-    async def initiate_device_code_flow(self) -> tuple[DeviceCodeInfo, DeviceFlowDict]:
+    async def initiate_device_code_flow(self) -> tuple[DeviceCodeInfo, AuthFlowContext]:
         """Start a device code flow.
 
-        Stores the MSAL app instance internally so that ``poll_for_token``
-        can use the same instance, ensuring consistent cache state.
-
-        If called a second time before ``poll_for_token`` completes, the
-        previous pending flow's app and cache are silently replaced.
+        The returned ``AuthFlowContext`` bundles the MSAL app, cache, and flow
+        dict for use by ``poll_for_token``, avoiding any shared mutable state.
 
         Returns:
-            A tuple of (DeviceCodeInfo, flow_dict). Pass flow_dict to
-            ``poll_for_token()`` to complete authentication.
+            A tuple of ``(DeviceCodeInfo, AuthFlowContext)``.
+            Display ``DeviceCodeInfo.user_code`` and ``verification_uri`` to the
+            user, then pass ``AuthFlowContext`` to ``poll_for_token()``.
 
         Raises:
             ValueError: if MS_TENANT_ID or MS_CLIENT_ID env vars are not set.
+            RuntimeError: if MSAL returns an error from ``initiate_device_flow``.
         """
         loop = asyncio.get_running_loop()
 
-        def _initiate() -> tuple[DeviceCodeInfo, DeviceFlowDict]:
+        def _initiate() -> tuple[DeviceCodeInfo, AuthFlowContext]:
             app, cache = self._build_app()
-            # Store for reuse in poll_for_token
-            self._pending_app = app
-            self._pending_cache = cache
-            flow: DeviceFlowDict = app.initiate_device_flow(scopes=self.SCOPES)
+            flow_raw: dict[str, object] = app.initiate_device_flow(scopes=self.SCOPES)
+
+            if "error" in flow_raw:
+                raise RuntimeError(
+                    "Failed to initiate device code flow: "
+                    f"{flow_raw.get('error_description') or flow_raw.get('error')}"
+                )
+
+            flow = DeviceFlowDict(
+                user_code=str(flow_raw["user_code"]),
+                device_code=str(flow_raw["device_code"]),
+                verification_uri=str(flow_raw["verification_uri"]),
+                expires_in=int(str(flow_raw["expires_in"])),
+                interval=int(str(flow_raw["interval"])),
+                message=str(flow_raw["message"]),
+            )
             info = DeviceCodeInfo(
                 user_code=flow["user_code"],
                 verification_uri=flow["verification_uri"],
@@ -276,39 +322,29 @@ class MicrosoftGraphAuth:
                 "ms_graph_auth.device_flow_initiated",
                 verification_uri=info.verification_uri,
             )
-            return info, flow
+            return info, AuthFlowContext(flow=flow, app=app, cache=cache)
 
         return await loop.run_in_executor(None, _initiate)
 
-    async def poll_for_token(self, flow: DeviceFlowDict) -> bool:
+    async def poll_for_token(self, context: AuthFlowContext) -> bool:
         """Block until the user authenticates or the flow expires.
 
-        Reuses the MSAL app instance from ``initiate_device_code_flow`` when
-        available, ensuring the resulting token is saved to the same cache.
+        Uses the MSAL app and cache from the supplied ``AuthFlowContext`` so
+        that the resulting token is stored in the same cache that was in use
+        when the flow was initiated.
 
         Args:
-            flow: The flow dict returned by ``initiate_device_code_flow()``.
+            context: The ``AuthFlowContext`` returned by
+                ``initiate_device_code_flow()``.
 
         Returns:
             True if authentication succeeded and the token was saved.
             False if authentication failed or was declined.
-
-        Raises:
-            ValueError: if MS_TENANT_ID or MS_CLIENT_ID env vars are not set
-                and no pending app is available.
         """
         loop = asyncio.get_running_loop()
 
         def _blocking_poll() -> bool:
-            if self._pending_app is not None and self._pending_cache is not None:
-                app = self._pending_app
-                cache = self._pending_cache
-                self._pending_app = None
-                self._pending_cache = None
-            else:
-                app, cache = self._build_app()
-
-            result: _TokenResultDict = app.acquire_token_by_device_flow(flow)
+            result: _TokenResultDict = context._app.acquire_token_by_device_flow(context._flow)
             if "error" in result:
                 logger.warning(
                     "ms_graph_auth.device_flow_failed",
@@ -317,7 +353,7 @@ class MicrosoftGraphAuth:
                 )
                 return False
 
-            self._save_token_cache(cache)
+            self._save_token_cache(context._cache)
             logger.info("ms_graph_auth.device_flow_succeeded")
             return True
 
@@ -343,8 +379,9 @@ class MicrosoftGraphAuth:
                 self.SCOPES, account=accounts[0]
             )
             if result and "access_token" in result:
-                self._save_token_cache(cache)
-                return str(result["access_token"])
+                if cache.has_state_changed:
+                    self._save_token_cache(cache)
+                return result["access_token"]
 
             return None
 
@@ -356,6 +393,8 @@ class MicrosoftGraphAuth:
         Note: a cached account does not guarantee a valid token — the token may
         need a silent refresh, which can fail if the refresh token has expired.
         Use ``get_access_token()`` when you need a confirmed valid token.
+
+        This method offloads I/O to a thread pool via ``run_in_executor``.
 
         Raises:
             ValueError: if MS_TENANT_ID or MS_CLIENT_ID env vars are not set.

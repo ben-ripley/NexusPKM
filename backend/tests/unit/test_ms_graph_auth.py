@@ -11,7 +11,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from msal import SerializableTokenCache
 
-from nexuspkm.connectors.ms_graph.auth import DeviceCodeInfo, MicrosoftGraphAuth
+from nexuspkm.connectors.ms_graph.auth import (
+    AuthFlowContext,
+    DeviceCodeInfo,
+    MicrosoftGraphAuth,
+)
 
 _SKIP_WINDOWS_PERMS = pytest.mark.skipif(
     sys.platform == "win32", reason="Unix file permissions not enforced on Windows"
@@ -26,15 +30,27 @@ def token_dir(tmp_path: Path) -> Path:
     return d
 
 
-@pytest.fixture
-def auth(token_dir: Path) -> MicrosoftGraphAuth:
-    """MicrosoftGraphAuth instance with temp token dir."""
-    return MicrosoftGraphAuth(token_dir)
+def _mock_build(mock_app: MagicMock) -> tuple[MagicMock, SerializableTokenCache]:
+    """Return a (mock_app, real_cache) tuple for patching _build_app.
+
+    A real SerializableTokenCache is used so has_state_changed behaves correctly.
+    """
+    return mock_app, SerializableTokenCache()
 
 
-def _mock_build(mock_app: MagicMock) -> tuple[MagicMock, MagicMock]:
-    """Return a (mock_app, mock_cache) tuple for patching _build_app."""
-    return mock_app, MagicMock(spec=SerializableTokenCache)
+def _make_auth_flow_context(mock_app: MagicMock, flow_dict: dict[str, object]) -> AuthFlowContext:
+    """Build an AuthFlowContext with a mock app for use in poll_for_token tests."""
+    from nexuspkm.connectors.ms_graph.auth import DeviceFlowDict
+
+    flow = DeviceFlowDict(
+        user_code=str(flow_dict.get("user_code", "X")),
+        device_code=str(flow_dict.get("device_code", "d")),
+        verification_uri=str(flow_dict.get("verification_uri", "https://example.com")),
+        expires_in=int(flow_dict.get("expires_in", 900)),  # type: ignore[arg-type]
+        interval=int(flow_dict.get("interval", 5)),  # type: ignore[arg-type]
+        message=str(flow_dict.get("message", "msg")),
+    )
+    return AuthFlowContext(flow=flow, app=mock_app, cache=SerializableTokenCache())
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +84,32 @@ def test_key_file_created_with_restricted_permissions(token_dir: Path) -> None:
     auth._get_or_create_key()
     mode = stat.S_IMODE((token_dir / "token.key").stat().st_mode)
     assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
+def test_get_or_create_key_handles_concurrent_creation(token_dir: Path) -> None:
+    """FileExistsError from O_EXCL (concurrent create) falls back to reading the winner's key."""
+    from cryptography.fernet import Fernet
+
+    auth = MicrosoftGraphAuth(token_dir)
+
+    winner_key = Fernet.generate_key()
+    (token_dir / "token.key").write_bytes(winner_key)
+
+    real_os_open = os.open
+
+    def raise_file_exists(
+        path: str | bytes | os.PathLike[str] | os.PathLike[bytes] | int,
+        flags: int,
+        mode: int = 0o666,
+    ) -> int:
+        if flags & os.O_EXCL:
+            raise FileExistsError
+        return real_os_open(path, flags, mode)
+
+    with patch("nexuspkm.connectors.ms_graph.auth.os.open", side_effect=raise_file_exists):
+        key = auth._get_or_create_key()
+
+    assert key == winner_key
 
 
 # ---------------------------------------------------------------------------
@@ -108,6 +150,59 @@ def test_cache_file_created_with_restricted_permissions(token_dir: Path) -> None
     assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
 
 
+def test_save_token_cache_cleans_up_tmp_file_on_rename_failure(token_dir: Path) -> None:
+    """If rename fails, the .tmp file is deleted and the exception re-raised."""
+    auth = MicrosoftGraphAuth(token_dir)
+    cache = SerializableTokenCache()
+
+    with (
+        patch(
+            "nexuspkm.connectors.ms_graph.auth.Path.rename", side_effect=OSError("rename failed")
+        ),
+        pytest.raises(OSError, match="rename failed"),
+    ):
+        auth._save_token_cache(cache)
+
+    tmp_file = token_dir / "ms_graph.tmp"
+    assert not tmp_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# _build_app() — env var validation
+# ---------------------------------------------------------------------------
+
+
+def test_build_app_raises_when_env_vars_missing(token_dir: Path) -> None:
+    """Raises ValueError when MS_TENANT_ID or MS_CLIENT_ID are not set."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        auth._build_app()
+
+
+def test_build_app_raises_when_client_id_missing(token_dir: Path) -> None:
+    """Raises ValueError when MS_CLIENT_ID is missing (MS_TENANT_ID is present)."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with (
+        patch.dict("os.environ", {"MS_TENANT_ID": "tenant-123"}, clear=True),
+        pytest.raises(ValueError, match="MS_CLIENT_ID"),
+    ):
+        auth._build_app()
+
+
+def test_build_app_raises_on_invalid_tenant_id_format(token_dir: Path) -> None:
+    """Raises ValueError when MS_TENANT_ID contains path-traversal characters."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with (
+        patch.dict(
+            "os.environ",
+            {"MS_TENANT_ID": "../../etc/passwd", "MS_CLIENT_ID": "client-id"},
+            clear=True,
+        ),
+        pytest.raises(ValueError, match="invalid format"),
+    ):
+        auth._build_app()
+
+
 # ---------------------------------------------------------------------------
 # authenticate()
 # ---------------------------------------------------------------------------
@@ -133,7 +228,9 @@ async def test_authenticate_returns_true_on_silent_success(token_dir: Path) -> N
         mock_app = MagicMock()
         mock_app.get_accounts.return_value = [{"username": "user@example.com"}]
         mock_app.acquire_token_silent.return_value = {"access_token": "tok123"}
-        mock_build.return_value = _mock_build(mock_app)
+        app, cache = _mock_build(mock_app)
+        cache.has_state_changed = True  # type: ignore[assignment]
+        mock_build.return_value = (app, cache)
         result = await auth.authenticate()
     assert result is True
 
@@ -151,6 +248,14 @@ async def test_authenticate_returns_false_on_silent_failure(token_dir: Path) -> 
     assert result is False
 
 
+@pytest.mark.asyncio
+async def test_authenticate_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
+    """ValueError from missing env vars propagates through the executor in authenticate()."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.authenticate()
+
+
 # ---------------------------------------------------------------------------
 # initiate_device_code_flow()
 # ---------------------------------------------------------------------------
@@ -158,9 +263,9 @@ async def test_authenticate_returns_false_on_silent_failure(token_dir: Path) -> 
 
 @pytest.mark.asyncio
 async def test_initiate_device_code_flow_returns_device_code_info(token_dir: Path) -> None:
-    """Returns a DeviceCodeInfo with human-readable fields and the raw flow dict."""
+    """Returns a DeviceCodeInfo and AuthFlowContext with human-readable fields."""
     auth = MicrosoftGraphAuth(token_dir)
-    flow_dict = {
+    flow_dict: dict[str, object] = {
         "user_code": "ABCD1234",
         "device_code": "device-code-xyz",
         "verification_uri": "https://microsoft.com/devicelogin",
@@ -173,35 +278,41 @@ async def test_initiate_device_code_flow_returns_device_code_info(token_dir: Pat
         mock_app.initiate_device_flow.return_value = flow_dict
         mock_build.return_value = _mock_build(mock_app)
 
-        info, raw_flow = await auth.initiate_device_code_flow()
+        info, ctx = await auth.initiate_device_code_flow()
 
     assert isinstance(info, DeviceCodeInfo)
+    assert isinstance(ctx, AuthFlowContext)
     assert info.user_code == "ABCD1234"
     assert info.verification_uri == "https://microsoft.com/devicelogin"
     assert info.expires_in == 900
     assert info.message == flow_dict["message"]
-    assert raw_flow is flow_dict
 
 
 @pytest.mark.asyncio
-async def test_initiate_device_code_flow_stores_pending_app(token_dir: Path) -> None:
-    """initiate_device_code_flow stores app and cache for reuse by poll_for_token."""
+async def test_initiate_device_code_flow_raises_on_msal_error(token_dir: Path) -> None:
+    """RuntimeError is raised when MSAL returns an error from initiate_device_flow."""
     auth = MicrosoftGraphAuth(token_dir)
-    flow_dict = {
-        "user_code": "X",
-        "device_code": "d",
-        "verification_uri": "https://example.com",
-        "expires_in": 900,
-        "interval": 5,
-        "message": "msg",
+    error_response: dict[str, object] = {
+        "error": "invalid_client",
+        "error_description": "Application not found",
     }
     with patch.object(auth, "_build_app") as mock_build:
         mock_app = MagicMock()
-        mock_app.initiate_device_flow.return_value = flow_dict
+        mock_app.initiate_device_flow.return_value = error_response
         mock_build.return_value = _mock_build(mock_app)
-        await auth.initiate_device_code_flow()
 
-    assert auth._pending_app is mock_app
+        with pytest.raises(RuntimeError, match="Application not found"):
+            await auth.initiate_device_code_flow()
+
+
+@pytest.mark.asyncio
+async def test_initiate_device_code_flow_raises_valueerror_when_env_vars_missing(
+    token_dir: Path,
+) -> None:
+    """ValueError from missing env vars propagates through executor in initiate_device_code_flow."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.initiate_device_code_flow()
 
 
 # ---------------------------------------------------------------------------
@@ -215,82 +326,46 @@ async def test_poll_for_token_returns_true_on_success_and_saves_cache(
 ) -> None:
     """Returns True and saves cache when MSAL returns a token dict."""
     auth = MicrosoftGraphAuth(token_dir)
-    flow = {
-        "user_code": "ABCD1234",
-        "device_code": "d",
-        "verification_uri": "https://example.com",
-        "expires_in": 900,
-        "interval": 5,
-        "message": "msg",
+    mock_app = MagicMock()
+    mock_app.acquire_token_by_device_flow.return_value = {
+        "access_token": "tok123",
+        "token_type": "Bearer",
     }
-    token_result = {"access_token": "tok123", "token_type": "Bearer"}
+    ctx = _make_auth_flow_context(mock_app, {})
 
-    with (
-        patch.object(auth, "_build_app") as mock_build,
-        patch.object(auth, "_save_token_cache") as mock_save,
-    ):
-        mock_app = MagicMock()
-        mock_app.acquire_token_by_device_flow.return_value = token_result
-        mock_build.return_value = _mock_build(mock_app)
-
-        result = await auth.poll_for_token(flow)
+    with patch.object(auth, "_save_token_cache") as mock_save:
+        result = await auth.poll_for_token(ctx)
 
     assert result is True
-    mock_save.assert_called_once()
+    mock_save.assert_called_once_with(ctx._cache)
 
 
 @pytest.mark.asyncio
-async def test_poll_for_token_uses_pending_app_from_initiate(token_dir: Path) -> None:
-    """poll_for_token uses the same app instance stored by initiate_device_code_flow."""
+async def test_poll_for_token_uses_context_app_not_fresh_build(token_dir: Path) -> None:
+    """poll_for_token uses the app from AuthFlowContext; _build_app is never called."""
     auth = MicrosoftGraphAuth(token_dir)
-    flow_dict = {
-        "user_code": "X",
-        "device_code": "d",
-        "verification_uri": "https://example.com",
-        "expires_in": 900,
-        "interval": 5,
-        "message": "msg",
-    }
-    token_result = {"access_token": "tok123"}
+    mock_app = MagicMock()
+    mock_app.acquire_token_by_device_flow.return_value = {"access_token": "tok123"}
+    ctx = _make_auth_flow_context(mock_app, {})
 
     with patch.object(auth, "_build_app") as mock_build, patch.object(auth, "_save_token_cache"):
-        mock_app = MagicMock()
-        mock_app.initiate_device_flow.return_value = flow_dict
-        mock_app.acquire_token_by_device_flow.return_value = token_result
-        mock_build.return_value = _mock_build(mock_app)
+        await auth.poll_for_token(ctx)
 
-        await auth.initiate_device_code_flow()
-        build_call_count_after_initiate = mock_build.call_count
-
-        await auth.poll_for_token(flow_dict)
-
-    # _build_app called once for initiate, NOT again for poll (reused pending app)
-    assert mock_build.call_count == build_call_count_after_initiate
-    # pending state cleared after poll
-    assert auth._pending_app is None
+    mock_build.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_poll_for_token_returns_false_on_error(token_dir: Path) -> None:
     """Returns False when MSAL response contains an error key."""
     auth = MicrosoftGraphAuth(token_dir)
-    flow = {
-        "user_code": "ABCD1234",
-        "device_code": "d",
-        "verification_uri": "https://example.com",
-        "expires_in": 900,
-        "interval": 5,
-        "message": "msg",
+    mock_app = MagicMock()
+    mock_app.acquire_token_by_device_flow.return_value = {
+        "error": "authorization_declined",
+        "error_description": "User declined",
     }
-    error_result = {"error": "authorization_declined", "error_description": "User declined"}
+    ctx = _make_auth_flow_context(mock_app, {})
 
-    with patch.object(auth, "_build_app") as mock_build:
-        mock_app = MagicMock()
-        mock_app.acquire_token_by_device_flow.return_value = error_result
-        mock_build.return_value = _mock_build(mock_app)
-
-        result = await auth.poll_for_token(flow)
-
+    result = await auth.poll_for_token(ctx)
     assert result is False
 
 
@@ -319,9 +394,19 @@ async def test_get_access_token_returns_token_when_silent_succeeds(token_dir: Pa
         mock_app = MagicMock()
         mock_app.get_accounts.return_value = [{"username": "user@example.com"}]
         mock_app.acquire_token_silent.return_value = {"access_token": "tok999"}
-        mock_build.return_value = _mock_build(mock_app)
+        app, cache = _mock_build(mock_app)
+        cache.has_state_changed = True  # type: ignore[assignment]
+        mock_build.return_value = (app, cache)
         result = await auth.get_access_token()
     assert result == "tok999"
+
+
+@pytest.mark.asyncio
+async def test_get_access_token_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
+    """ValueError from missing env vars propagates through the executor in get_access_token()."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.get_access_token()
 
 
 # ---------------------------------------------------------------------------
@@ -352,93 +437,30 @@ async def test_has_cached_account_true_when_account_cached(token_dir: Path) -> N
 
 
 # ---------------------------------------------------------------------------
-# _build_app() — env var validation
-# ---------------------------------------------------------------------------
-
-
-def test_build_app_raises_when_env_vars_missing(token_dir: Path) -> None:
-    """Raises ValueError when MS_TENANT_ID or MS_CLIENT_ID are not set."""
-    auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
-        auth._build_app()
-
-
-def test_build_app_raises_when_client_id_missing(token_dir: Path) -> None:
-    """Raises ValueError when MS_CLIENT_ID is missing (MS_TENANT_ID is present)."""
-    auth = MicrosoftGraphAuth(token_dir)
-    with (
-        patch.dict("os.environ", {"MS_TENANT_ID": "tenant-123"}, clear=True),
-        pytest.raises(ValueError, match="MS_CLIENT_ID"),
-    ):
-        auth._build_app()
-
-
-# ---------------------------------------------------------------------------
 # ValueError propagation through run_in_executor
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_authenticate_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
-    """ValueError from missing env vars propagates through the executor in authenticate()."""
-    auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
-        await auth.authenticate()
-
-
-@pytest.mark.asyncio
-async def test_initiate_device_code_flow_raises_valueerror_when_env_vars_missing(
+async def test_poll_for_token_valueerror_propagates_when_no_context_and_env_missing(
     token_dir: Path,
 ) -> None:
-    """ValueError from missing env vars propagates through executor in initiate_device_code_flow."""
+    """ValueError from _build_app propagates when poll_for_token falls back to building an app."""
     auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
-        await auth.initiate_device_code_flow()
-
-
-@pytest.mark.asyncio
-async def test_get_access_token_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
-    """ValueError from missing env vars propagates through the executor in get_access_token()."""
-    auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
-        await auth.get_access_token()
+    # Use a real (empty) context but override its _app to raise ValueError
+    mock_app = MagicMock()
+    mock_app.acquire_token_by_device_flow.side_effect = ValueError("MS_TENANT_ID required")
+    ctx = _make_auth_flow_context(mock_app, {})
+    with pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.poll_for_token(ctx)
 
 
 # ---------------------------------------------------------------------------
-# _get_or_create_key TOCTOU concurrent-create path
+# DeviceFlowDict and AuthFlowContext are public types
 # ---------------------------------------------------------------------------
 
 
-def test_get_or_create_key_handles_concurrent_creation(token_dir: Path) -> None:
-    """FileExistsError from O_EXCL (concurrent create) falls back to reading the winner's key."""
-    from cryptography.fernet import Fernet
-
-    auth = MicrosoftGraphAuth(token_dir)
-
-    # Write a valid key as if a concurrent caller won the race.
-    winner_key = Fernet.generate_key()
-    key_file = token_dir / "token.key"
-    key_file.write_bytes(winner_key)
-
-    # Simulate O_EXCL raising FileExistsError on our attempt to create.
-    real_os_open = os.open
-
-    def raise_file_exists(path: object, flags: int, mode: int = 0o666) -> int:
-        if flags & os.O_EXCL:
-            raise FileExistsError
-        return real_os_open(path, flags, mode)  # type: ignore[arg-type]
-
-    with patch("nexuspkm.connectors.ms_graph.auth.os.open", side_effect=raise_file_exists):
-        key = auth._get_or_create_key()
-
-    assert key == winner_key
-
-
-# ---------------------------------------------------------------------------
-# DeviceFlowDict is a public type
-# ---------------------------------------------------------------------------
-
-
-def test_device_flow_dict_is_exported() -> None:
-    """DeviceFlowDict is accessible from the public package."""
+def test_public_types_are_exported() -> None:
+    """AuthFlowContext and DeviceFlowDict are accessible from the public package."""
+    from nexuspkm.connectors.ms_graph import AuthFlowContext as _AFC  # noqa: F401
     from nexuspkm.connectors.ms_graph import DeviceFlowDict as _DFD  # noqa: F401
