@@ -99,7 +99,9 @@ class TestToDocument:
         assert doc.metadata.updated_at == _DATE
         assert doc.content == "Alice Smith: Hello everyone.\nBob Jones: Thanks Alice.\n"
         assert doc.metadata.custom["duration_minutes"] == 30
-        assert len(doc.metadata.custom["segments"]) == 2  # type: ignore[arg-type]
+        segments = doc.metadata.custom["segments"]
+        assert isinstance(segments, list)
+        assert len(segments) == 2
 
     def test_to_document_empty_content_fallback(self, tmp_path: Path) -> None:
         connector = _make_connector(tmp_path)

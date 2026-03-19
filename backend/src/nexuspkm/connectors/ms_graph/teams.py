@@ -24,7 +24,7 @@ import structlog
 
 from nexuspkm.config.models import TeamsConnectorConfig
 from nexuspkm.connectors.base import BaseConnector, ConnectorStatus
-from nexuspkm.connectors.ms_graph.auth import MicrosoftGraphAuth
+from nexuspkm.connectors.ms_graph.auth import AuthFlowContext, DeviceCodeInfo, MicrosoftGraphAuth
 from nexuspkm.connectors.ms_graph.vtt_parser import ParsedTranscript, parse_vtt
 from nexuspkm.models.document import Document, DocumentMetadata, SourceType, SyncState
 
@@ -58,6 +58,22 @@ class TeamsTranscriptConnector(BaseConnector):
         token = await self._auth.get_access_token()
         return token is not None
 
+    async def initiate_auth_flow(self) -> tuple[DeviceCodeInfo, AuthFlowContext]:
+        """Start the Microsoft Graph Device Code auth flow.
+
+        Returns a ``(DeviceCodeInfo, AuthFlowContext)`` tuple.  Display
+        ``DeviceCodeInfo.user_code`` and ``verification_uri`` to the user, then
+        pass the ``AuthFlowContext`` to ``complete_auth_flow``.
+        """
+        return await self._auth.initiate_device_code_flow()
+
+    async def complete_auth_flow(self, context: AuthFlowContext) -> bool:
+        """Poll for the token after the user completes device code authentication.
+
+        Returns True on success, False if authentication failed or expired.
+        """
+        return await self._auth.poll_for_token(context)
+
     def fetch(self, since: datetime.datetime | None = None) -> AsyncIterator[Document]:
         """Return an async iterator of Documents for all meetings since *since*."""
         return self._fetch_gen(since)
@@ -79,19 +95,30 @@ class TeamsTranscriptConnector(BaseConnector):
 
     async def get_sync_state(self) -> SyncState:
         """Load sync state from disk; return an empty state if the file is missing."""
-        if not self._state_file.exists():
-            return SyncState()
-        try:
-            data = json.loads(self._state_file.read_text())
-            return SyncState.model_validate(data)
-        except Exception:
-            log.warning("teams_connector.state_load_failed", path=str(self._state_file))
-            return SyncState()
+        state_file = self._state_file
+
+        def _read() -> SyncState:
+            if not state_file.exists():
+                return SyncState()
+            try:
+                data = json.loads(state_file.read_text())
+                return SyncState.model_validate(data)
+            except (json.JSONDecodeError, ValueError):
+                log.warning("teams_connector.state_load_failed", path=str(state_file))
+                return SyncState()
+
+        return await asyncio.to_thread(_read)
 
     async def restore_sync_state(self, state: SyncState) -> None:
         """Persist sync state to disk."""
-        self._state_file.parent.mkdir(parents=True, exist_ok=True)
-        self._state_file.write_text(state.model_dump_json())
+        state_file = self._state_file
+        serialized = state.model_dump_json()
+
+        def _write() -> None:
+            state_file.parent.mkdir(parents=True, exist_ok=True)
+            state_file.write_text(serialized)
+
+        await asyncio.to_thread(_write)
 
     # ------------------------------------------------------------------
     # Private: fetch pipeline
@@ -120,20 +147,28 @@ class TeamsTranscriptConnector(BaseConnector):
                     if not transcript_id:
                         continue
 
-                    vtt_content = await self._fetch_vtt(
-                        client, access_token, meeting_id, transcript_id
-                    )
-                    parsed = parse_vtt(
-                        vtt_content,
-                        meeting_id=meeting_id,
-                        title=meeting_meta["title"],
-                        date=meeting_meta["start_dt"],
-                        duration_minutes=meeting_meta["duration_minutes"],
-                        participants=meeting_meta["participants"],
-                    )
-                    doc = self._to_document(parsed)
-                    self._total_docs_synced += 1
-                    yield doc
+                    try:
+                        vtt_content = await self._fetch_vtt(
+                            client, access_token, meeting_id, transcript_id
+                        )
+                        parsed = parse_vtt(
+                            vtt_content,
+                            meeting_id=meeting_id,
+                            title=meeting_meta["title"],
+                            date=meeting_meta["start_dt"],
+                            duration_minutes=meeting_meta["duration_minutes"],
+                            participants=meeting_meta["participants"],
+                        )
+                        doc = self._to_document(parsed)
+                        self._total_docs_synced += 1
+                        yield doc
+                    except Exception:
+                        log.warning(
+                            "teams_connector.transcript_fetch_failed",
+                            meeting_id=meeting_id,
+                            transcript_id=transcript_id,
+                            exc_info=True,
+                        )
 
     # ------------------------------------------------------------------
     # Private: Graph API helpers
@@ -148,7 +183,8 @@ class TeamsTranscriptConnector(BaseConnector):
         headers = {"Authorization": f"Bearer {access_token}"}
         params: dict[str, str] = {"$orderby": "startDateTime desc", "$top": "50"}
         if since is not None:
-            params["$filter"] = f"startDateTime ge {since.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+            since_utc = since.astimezone(datetime.UTC)
+            params["$filter"] = f"startDateTime ge {since_utc.strftime('%Y-%m-%dT%H:%M:%SZ')}"
 
         next_url: str | None = f"{_GRAPH_BASE}/me/onlineMeetings"
         current_params: dict[str, str] | None = params
