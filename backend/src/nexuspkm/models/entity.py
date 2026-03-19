@@ -1,0 +1,62 @@
+"""Entity and extraction data models.
+
+Defines EntityType, EntitySummary (lightweight reference used in search results),
+and the full extraction models produced by the entity intelligence layer.
+
+Spec: F-006 FR-1, FR-2
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from nexuspkm.models.relationship import RelationshipType
+
+ConfidenceFloat = Annotated[float, Field(ge=0.0, le=1.0)]
+
+
+class EntityType(StrEnum):
+    PERSON = "person"
+    PROJECT = "project"
+    TOPIC = "topic"
+    DECISION = "decision"
+    ACTION_ITEM = "action_item"
+    MEETING = "meeting"
+
+
+class EntitySummary(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1)
+    entity_type: EntityType
+
+
+class ExtractedEntity(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    type: EntityType
+    name: str = Field(min_length=1)
+    properties: dict[str, object] = Field(default_factory=dict)
+    confidence: ConfidenceFloat
+    source_span: str = Field(min_length=1)
+
+
+class ExtractedRelationship(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source_entity: str = Field(min_length=1)
+    relationship_type: RelationshipType
+    target_entity: str = Field(min_length=1)
+    confidence: ConfidenceFloat
+    context: str = Field(min_length=1)
+
+
+class ExtractionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    entities: list[ExtractedEntity]
+    relationships: list[ExtractedRelationship]
+    confidence: ConfidenceFloat
