@@ -21,6 +21,8 @@ dependencies = [
     "lancedb>=0.20",
     "pyarrow>=14.0",
     "kuzu>=0.11.3",
+    "msal>=1.31",
+    "cryptography>=43.0",
 ]
 
 [project.optional-dependencies]
@@ -74,4 +76,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "apscheduler.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "msal.*"
 ignore_missing_imports = true
