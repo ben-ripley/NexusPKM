@@ -13,10 +13,12 @@ log = structlog.get_logger(__name__)
 
 
 class ConnectorRegistry:
-    """Thread-safe-enough registry for connector instances and their statuses.
+    """Registry for connector instances and their statuses.
 
-    Access is single-threaded in practice (event loop + APScheduler async jobs),
-    so no additional locking is required here.
+    Not thread-safe.  Intended for use exclusively within a single asyncio
+    event loop; all callers (FastAPI request handlers and APScheduler async
+    jobs) share the same loop and therefore never mutate the registry
+    concurrently.
     """
 
     def __init__(self) -> None:

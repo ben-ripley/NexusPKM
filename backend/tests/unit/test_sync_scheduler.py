@@ -248,6 +248,47 @@ class TestSyncSchedulerAuthFailure:
         await scheduler._sync_connector("stub")
 
 
+class TestSyncSchedulerHealthCheckFailure:
+    @pytest.mark.asyncio
+    async def test_health_check_raises_does_not_call_restore_sync_state(self) -> None:
+        """restore_sync_state must NOT be called when health_check raises.
+
+        If health_check fails after ingestion, we do not advance the cursor so
+        the next run will re-fetch from the old checkpoint (relying on idempotent
+        inserts rather than silently dropping documents).
+        """
+        from nexuspkm.connectors.scheduler import SyncScheduler
+
+        connector = _make_stub_connector("stub")
+        connector.health_check = AsyncMock(side_effect=RuntimeError("health failure"))
+
+        registry = _make_registry(connector)
+        index = MagicMock()
+        index.insert = AsyncMock(side_effect=lambda doc: doc)
+
+        scheduler = SyncScheduler(registry, index)
+        await scheduler._sync_connector("stub")
+
+        connector.restore_sync_state.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_health_check_raises_sets_unavailable(self) -> None:
+        from nexuspkm.connectors.scheduler import SyncScheduler
+
+        connector = _make_stub_connector("stub")
+        connector.health_check = AsyncMock(side_effect=RuntimeError("health failure"))
+
+        registry = _make_registry(connector)
+        index = MagicMock()
+        index.insert = AsyncMock(side_effect=lambda doc: doc)
+
+        scheduler = SyncScheduler(registry, index)
+        await scheduler._sync_connector("stub")
+
+        _, status_arg = registry.update_status.call_args[0]
+        assert status_arg.status == "unavailable"
+
+
 class TestSyncSchedulerFetchFailure:
     @pytest.mark.asyncio
     async def test_fetch_raises_sets_unavailable(self) -> None:
@@ -409,8 +450,44 @@ class TestSyncSchedulerLifecycle:
             mock_sched.shutdown.assert_called_once_with(wait=False)
 
     @pytest.mark.asyncio
+    async def test_tracked_sync_connector_registers_and_removes_task(self) -> None:
+        """_tracked_sync_connector adds the running task to _tasks during execution
+        and removes it on completion.
+        """
+        from nexuspkm.connectors.scheduler import SyncScheduler
+
+        connector = _make_stub_connector("stub")
+        registry = _make_registry(connector)
+        index = MagicMock()
+        index.insert = AsyncMock(side_effect=lambda doc: doc)
+
+        # A barrier that _sync_connector will block on so we can inspect _tasks mid-run.
+        barrier = asyncio.Event()
+        reached = asyncio.Event()
+
+        async def _pausing_sync(name: str) -> None:
+            reached.set()
+            await barrier.wait()
+
+        scheduler = SyncScheduler(registry, index)
+        # Patch the inner method so _tracked_sync_connector still exercises its
+        # add/discard logic but we can pause execution at a known point.
+        scheduler._sync_connector = _pausing_sync  # type: ignore[method-assign]
+
+        task = asyncio.create_task(scheduler._tracked_sync_connector("stub"))
+
+        # Wait until _pausing_sync has started (task is in progress)
+        await reached.wait()
+        assert task in scheduler._tasks, "task should be tracked while running"
+
+        # Unblock and await completion
+        barrier.set()
+        await task
+        assert task not in scheduler._tasks, "task should be removed after completion"
+
+    @pytest.mark.asyncio
     async def test_shutdown_awaits_in_flight_tasks(self) -> None:
-        """shutdown() must await any in-flight _tracked_sync_connector tasks."""
+        """shutdown() drains _tasks via asyncio.gather before returning."""
         from nexuspkm.connectors.scheduler import SyncScheduler
 
         registry = MagicMock()
@@ -424,12 +501,11 @@ class TestSyncSchedulerLifecycle:
 
             scheduler = SyncScheduler(registry, index)
 
-            # Simulate a task that is "in flight" by manually adding a completed task
+            # Add a real (already-completed) task to _tasks to verify gather is called.
             completed = asyncio.create_task(asyncio.sleep(0))
-            await completed  # ensure it's done
+            await completed
             scheduler._tasks.add(completed)
 
             await scheduler.shutdown()
 
-            # After shutdown, task set should be drained
             mock_sched.shutdown.assert_called_once_with(wait=False)

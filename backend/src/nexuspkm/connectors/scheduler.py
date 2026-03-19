@@ -127,6 +127,9 @@ class SyncScheduler:
             return
 
         # --- Steps 2-4: fetch, ingest, update state ---
+        # health_check() is called before restore_sync_state() so that if the
+        # health check raises, the sync cursor is NOT advanced and the next run
+        # will re-fetch from the previous checkpoint (relying on idempotent inserts).
         docs_synced = 0
         try:
             sync_state = await connector.get_sync_state()
@@ -135,13 +138,14 @@ class SyncScheduler:
                 await self._index.insert(doc)
                 docs_synced += 1
 
+            health_status = await connector.health_check()
+
             await connector.restore_sync_state(
                 SyncState(
                     last_synced_at=datetime.datetime.now(tz=datetime.UTC),
                 )
             )
 
-            health_status = await connector.health_check()
             self._registry.update_status(name, health_status)
 
             log.info(
