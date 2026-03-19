@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -17,7 +18,7 @@ _registry: ProviderRegistry | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _registry
-    config = load_config()
+    config = await asyncio.to_thread(load_config)
     _registry = ProviderRegistry(config.providers)
     app.dependency_overrides[get_registry] = lambda: _registry
     log.info(

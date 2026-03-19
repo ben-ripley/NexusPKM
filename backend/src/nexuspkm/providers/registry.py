@@ -87,14 +87,16 @@ class ProviderRegistry:
         }
 
     async def check_health(self) -> dict[str, ProviderHealth]:
-        llm_health = await self._llm_primary.health_check()
-        emb_health = await self._emb_primary.health_check()
-        result: dict[str, ProviderHealth] = {"llm": llm_health, "embedding": emb_health}
+        keys = ["llm", "embedding"]
+        coros = [self._llm_primary.health_check(), self._emb_primary.health_check()]
         if self._llm_fallback:
-            result["llm_fallback"] = await self._llm_fallback.health_check()
+            keys.append("llm_fallback")
+            coros.append(self._llm_fallback.health_check())
         if self._emb_fallback:
-            result["embedding_fallback"] = await self._emb_fallback.health_check()
-        return result
+            keys.append("embedding_fallback")
+            coros.append(self._emb_fallback.health_check())
+        results: list[ProviderHealth] = list(await asyncio.gather(*coros))
+        return dict(zip(keys, results, strict=True))
 
     async def generate_with_fallback(
         self, messages: list[dict[str, str]], **kwargs: object
@@ -125,12 +127,21 @@ class ProviderRegistry:
             return await self._emb_fallback.embed(texts)
 
     async def reload(self, config: ProvidersConfig) -> None:
-        new_llm_primary = _make_llm(config.llm.primary)
-        new_llm_fallback = _make_llm(config.llm.fallback) if config.llm.fallback else None
-        new_emb_primary = _make_embedding(config.embedding.primary)
-        new_emb_fallback = (
-            _make_embedding(config.embedding.fallback) if config.embedding.fallback else None
-        )
+        try:
+            new_llm_primary = _make_llm(config.llm.primary)
+            new_llm_fallback = _make_llm(config.llm.fallback) if config.llm.fallback else None
+            new_emb_primary = _make_embedding(config.embedding.primary)
+            new_emb_fallback = (
+                _make_embedding(config.embedding.fallback) if config.embedding.fallback else None
+            )
+        except Exception as exc:
+            log.error(
+                "provider_reload_failed",
+                llm_provider=config.llm.primary.provider,
+                embedding_provider=config.embedding.primary.provider,
+                error=str(exc),
+            )
+            raise
         async with self._reload_lock:
             (
                 self._config,

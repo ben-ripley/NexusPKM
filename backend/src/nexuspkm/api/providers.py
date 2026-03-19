@@ -18,7 +18,9 @@ def get_registry() -> ProviderRegistry:
 
     This function is replaced via app.dependency_overrides in main.py's lifespan.
     """
-    raise NotImplementedError("ProviderRegistry not initialised")  # pragma: no cover
+    raise HTTPException(  # pragma: no cover
+        status_code=503, detail="Provider registry not initialised"
+    )
 
 
 @router.get("/health")
@@ -32,7 +34,7 @@ async def get_health(
 @router.get("/active")
 async def get_active(
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
-) -> dict[str, Any]:
+) -> dict[str, dict[str, str]]:
     return registry.active_config()
 
 

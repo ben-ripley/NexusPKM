@@ -7,7 +7,7 @@ from typing import Any
 import structlog
 
 from nexuspkm.config.models import EmbeddingProviderConfig, LLMProviderConfig
-from nexuspkm.providers._utils import extract_tokens, to_chat_messages
+from nexuspkm.providers._utils import ChatMessage, MessageRole, extract_tokens, to_chat_messages
 from nexuspkm.providers.base import (
     BaseEmbeddingProvider,
     BaseLLMProvider,
@@ -30,11 +30,6 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError(
         "Install llama-index-embeddings-bedrock to use the Bedrock embedding provider"
     ) from exc
-
-try:
-    from llama_index.core.llms import ChatMessage, MessageRole
-except ImportError as exc:  # pragma: no cover
-    raise ImportError("Install llama-index-core to use providers") from exc
 
 
 class BedrockLLMProvider(BaseLLMProvider):

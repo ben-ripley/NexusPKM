@@ -92,7 +92,11 @@ def _mock_embed_client(dims: int = 1024) -> MagicMock:
     """Return a mock LlamaIndex embedding model."""
     mock = MagicMock()
     vec = [0.1] * dims
-    mock.aget_text_embedding_batch = AsyncMock(return_value=[vec, vec])
+
+    async def _batch(texts: list[str], **kwargs: Any) -> list[list[float]]:
+        return [[0.1] * dims] * len(texts)
+
+    mock.aget_text_embedding_batch = _batch
     mock.aget_text_embedding = AsyncMock(return_value=vec)
     return mock
 

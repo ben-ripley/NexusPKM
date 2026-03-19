@@ -7,6 +7,8 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise ImportError("Install llama-index-core to use providers") from exc
 
+__all__ = ["ChatMessage", "MessageRole", "extract_tokens", "to_chat_messages"]
+
 
 def to_chat_messages(messages: list[dict[str, str]]) -> list[Any]:
     """Convert a list of role/content dicts to LlamaIndex ChatMessage objects."""
