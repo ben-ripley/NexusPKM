@@ -295,7 +295,7 @@ class TestVectorStoreSearch:
         chain = store._table._search_chain
         chain.where.assert_called()
         call_arg = chain.where.call_args[0][0]
-        assert "created_at" in call_arg
+        assert "created_at >=" in call_arg
         assert "TIMESTAMP" in call_arg
 
     async def test_search_with_date_range_filter(self, store: Any) -> None:
@@ -306,7 +306,8 @@ class TestVectorStoreSearch:
         chain = store._table._search_chain
         chain.where.assert_called()
         call_arg = chain.where.call_args[0][0]
-        assert "created_at" in call_arg
+        assert "created_at >=" in call_arg
+        assert "created_at <=" in call_arg
         assert "TIMESTAMP" in call_arg
 
     async def test_search_with_date_to_only_filter(self, store: Any) -> None:
@@ -317,7 +318,8 @@ class TestVectorStoreSearch:
         chain = store._table._search_chain
         chain.where.assert_called()
         call_arg = chain.where.call_args[0][0]
-        assert "created_at" in call_arg
+        assert "created_at <=" in call_arg
+        assert "TIMESTAMP" in call_arg
 
     async def test_search_with_all_filters_combined(self, store: Any) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
