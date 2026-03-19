@@ -154,6 +154,15 @@ class TestSearchFilters:
         assert f.date_from == NOW
         assert f.date_to == NOW
 
+    def test_rejects_inverted_date_range(self) -> None:
+        from pydantic import ValidationError
+
+        from nexuspkm.engine.vector_store import SearchFilters
+
+        later = NOW + datetime.timedelta(days=1)
+        with pytest.raises(ValidationError, match="date_from"):
+            SearchFilters(date_from=later, date_to=NOW)
+
 
 # ---------------------------------------------------------------------------
 # VectorStore construction
@@ -208,6 +217,14 @@ class TestVectorStoreOpen:
 
 
 class TestVectorStoreStore:
+    async def test_store_auto_opens_when_table_is_none(self, mock_conn: MagicMock) -> None:
+        from nexuspkm.engine.vector_store import VectorStore
+
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
+        assert vs._table is None
+        await vs.store([_make_chunk()])
+        mock_conn.create_table.assert_called_once()
+
     async def test_store_empty_list_is_noop(self, store: Any) -> None:
         table = store._table
         await store.store([])
@@ -230,6 +247,14 @@ class TestVectorStoreStore:
 
 
 class TestVectorStoreSearch:
+    async def test_search_auto_opens_when_table_is_none(self, mock_conn: MagicMock) -> None:
+        from nexuspkm.engine.vector_store import VectorStore
+
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
+        assert vs._table is None
+        await vs.search([0.1, 0.2, 0.3, 0.4], top_k=5)
+        mock_conn.create_table.assert_called_once()
+
     async def test_search_returns_list_of_chunk_results(self, store: Any) -> None:
         from nexuspkm.models.document import ChunkResult
 
@@ -341,6 +366,14 @@ class TestVectorStoreSearch:
 
 
 class TestVectorStoreDelete:
+    async def test_delete_auto_opens_when_table_is_none(self, mock_conn: MagicMock) -> None:
+        from nexuspkm.engine.vector_store import VectorStore
+
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
+        assert vs._table is None
+        await vs.delete("doc-001")
+        mock_conn.create_table.assert_called_once()
+
     async def test_delete_calls_table_delete_with_document_id(self, store: Any) -> None:
         await store.delete("doc-001")
         store._table.delete.assert_called_once()
@@ -355,6 +388,15 @@ class TestVectorStoreDelete:
 
 
 class TestVectorStoreCount:
+    async def test_count_auto_opens_when_table_is_none(self, mock_conn: MagicMock) -> None:
+        from nexuspkm.engine.vector_store import VectorStore
+
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
+        assert vs._table is None
+        result = await vs.count()
+        mock_conn.create_table.assert_called_once()
+        assert isinstance(result, int)
+
     async def test_count_returns_integer(self, store: Any) -> None:
         result = await store.count()
         assert isinstance(result, int)

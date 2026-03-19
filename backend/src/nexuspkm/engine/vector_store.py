@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import datetime
-from typing import Any
+from typing import Any, Self
 
 import pyarrow as pa
 import structlog
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, model_validator
 
 from nexuspkm.models.document import ChunkResult, SourceType
 
@@ -38,11 +38,14 @@ def _escape_sql_string(value: str) -> str:
 
 
 def _dt_to_sql(dt: datetime.datetime) -> str:
-    """Format a datetime as a DuckDB TIMESTAMP literal string."""
-    # Normalise to UTC so the literal is always unambiguous.
+    """Format a datetime as a DuckDB TIMESTAMP literal string (microsecond precision).
+
+    Normalises to UTC so the literal is always unambiguous regardless of the
+    input timezone.
+    """
     if dt.tzinfo is not None:
         dt = dt.astimezone(datetime.UTC).replace(tzinfo=None)
-    return dt.strftime("%Y-%m-%d %H:%M:%S")
+    return dt.strftime("%Y-%m-%d %H:%M:%S.%f")
 
 
 class VectorChunk(BaseModel):
@@ -62,13 +65,27 @@ class VectorChunk(BaseModel):
 
 
 class SearchFilters(BaseModel):
-    """Optional filters applied to vector search queries."""
+    """Optional filters applied to vector search queries.
+
+    date_from / date_to bound the ``created_at`` timestamp of stored chunks.
+    When both are supplied, date_from must not be later than date_to.
+    """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     source_type: SourceType | None = None
     date_from: datetime.datetime | None = None
     date_to: datetime.datetime | None = None
+
+    @model_validator(mode="after")
+    def date_range_is_valid(self) -> Self:
+        if (
+            self.date_from is not None
+            and self.date_to is not None
+            and self.date_from > self.date_to
+        ):
+            raise ValueError("date_from must not be later than date_to")
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -85,9 +102,6 @@ class VectorStore:
         Filesystem path where LanceDB persists data (e.g. ``data/lancedb``).
     dimensions:
         Embedding vector length (must match the configured embedding provider).
-    _conn:
-        Injected connection for testing; when *None* a real connection is
-        created lazily by ``_open()``.
     """
 
     def __init__(
@@ -131,7 +145,7 @@ class VectorStore:
             else:
                 self._table = await self._conn.create_table(TABLE_NAME, schema=schema)
 
-        logger.info("vector_store.opened", db_path=self._db_path, dimensions=self._dimensions)
+            logger.info("vector_store.opened", db_path=self._db_path, dimensions=self._dimensions)
 
     async def close(self) -> None:
         """Close the underlying database connection."""
@@ -183,12 +197,12 @@ class VectorStore:
     async def search(
         self,
         vector: list[float],
-        top_k: int = Field(default=10, gt=0),
+        top_k: int = 10,
         filters: SearchFilters | None = None,
     ) -> list[ChunkResult]:
         """Return the *top_k* most similar chunks to *vector*.
 
-        Optionally filters by source_type and/or date range.
+        Optionally filters by source_type and/or date range (created_at).
         Score is computed as ``1.0 - cosine_distance``.
         """
         if top_k <= 0:
@@ -262,8 +276,10 @@ class VectorStore:
         clauses: list[str] = []
 
         if filters.source_type is not None:
-            # SourceType is a validated enum — its .value contains only safe ASCII chars
-            clauses.append(f"source_type = '{filters.source_type.value}'")
+            # Apply escaping defensively even though SourceType is a validated
+            # enum — guards against future enum values with unexpected characters.
+            safe_type = _escape_sql_string(filters.source_type.value)
+            clauses.append(f"source_type = '{safe_type}'")
 
         if filters.date_from is not None and filters.date_to is not None:
             clauses.append(
