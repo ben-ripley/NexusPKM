@@ -10,6 +10,8 @@ from nexuspkm.api.engine import router as engine_router
 from nexuspkm.api.providers import get_registry
 from nexuspkm.api.providers import router as providers_router
 from nexuspkm.config.loader import load_config
+from nexuspkm.connectors.registry import ConnectorRegistry
+from nexuspkm.connectors.scheduler import SyncScheduler
 from nexuspkm.engine import GraphStore, KnowledgeIndex, VectorStore
 from nexuspkm.providers.registry import ProviderRegistry
 
@@ -19,11 +21,14 @@ _registry: ProviderRegistry | None = None
 _knowledge_index: KnowledgeIndex | None = None
 _vector_store: VectorStore | None = None
 _graph_store: GraphStore | None = None
+_connector_registry: ConnectorRegistry | None = None
+_sync_scheduler: SyncScheduler | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _registry, _knowledge_index, _vector_store, _graph_store
+    global _connector_registry, _sync_scheduler
     config = await asyncio.to_thread(load_config)
     _registry = ProviderRegistry(config.providers)
     app.dependency_overrides[get_registry] = lambda: _registry
@@ -44,6 +49,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         raise
     app.dependency_overrides[get_knowledge_index] = lambda: _knowledge_index
 
+    _connector_registry = ConnectorRegistry()
+    # No connectors registered yet — concrete connectors added in future NXP issues.
+    intervals: dict[str, int] = {}
+    _sync_scheduler = SyncScheduler(_connector_registry, _knowledge_index)
+    _sync_scheduler.start(intervals)
+
     log.info(
         "nexuspkm_started",
         llm_provider=config.providers.llm.primary.provider,
@@ -51,6 +62,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     yield
 
+    if _sync_scheduler:
+        await _sync_scheduler.shutdown()
     if _vector_store:
         await _vector_store.close()
     if _graph_store:
@@ -59,6 +72,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _knowledge_index = None
     _vector_store = None
     _graph_store = None
+    _connector_registry = None
+    _sync_scheduler = None
 
 
 app = FastAPI(title="NexusPKM", lifespan=lifespan)

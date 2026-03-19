@@ -16,6 +16,7 @@ from nexuspkm.models.document import (
     ScoreFloat,
     SourceAttribution,
     SourceType,
+    SyncState,
 )
 from nexuspkm.models.entity import (
     ConfidenceFloat,
@@ -52,6 +53,7 @@ __all__ = [
     "ScoreFloat",
     "SourceAttribution",
     "SourceType",
+    "SyncState",
     # entity
     "ConfidenceFloat",
     "EntitySummary",
