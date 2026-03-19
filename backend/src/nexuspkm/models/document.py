@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AnyUrl, AwareDatetime, BaseModel, Field
+from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field
 
 from nexuspkm.models.entity import EntityType
 from nexuspkm.models.relationship import RelationshipType
@@ -44,6 +44,8 @@ class ProcessingStatus(StrEnum):
 
 
 class DocumentMetadata(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     source_type: SourceType
     source_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -58,14 +60,18 @@ class DocumentMetadata(BaseModel):
 
 
 class Document(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     id: str = Field(min_length=1)
-    content: str
+    content: str = Field(min_length=1)
     metadata: DocumentMetadata
     chunks: list[str] = Field(default_factory=list)
     processing_status: ProcessingStatus = ProcessingStatus.PENDING
 
 
 class SourceAttribution(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     document_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     source_type: SourceType
@@ -78,9 +84,11 @@ class SourceAttribution(BaseModel):
 
 
 class ChunkResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     chunk_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
-    text: str
+    text: str = Field(min_length=1)
     score: float  # cosine similarity — not bounded to [0, 1]
     source_type: SourceType
     source_id: str = Field(min_length=1)
@@ -89,20 +97,26 @@ class ChunkResult(BaseModel):
 
 
 class EntityResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     entity_id: str = Field(min_length=1)
     entity_type: EntityType
-    name: str
+    name: str = Field(min_length=1)
     context: str
 
 
 class RelResult(BaseModel):
-    source_entity: str
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    source_entity: str = Field(min_length=1)
     relationship_type: RelationshipType
-    target_entity: str
+    target_entity: str = Field(min_length=1)
     context: str
 
 
 class RetrievalResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     chunks: list[ChunkResult]
     entities: list[EntityResult]
     relationships: list[RelResult]

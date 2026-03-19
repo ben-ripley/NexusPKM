@@ -11,7 +11,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from nexuspkm.models.relationship import RelationshipType
 
@@ -28,19 +28,25 @@ class EntityType(StrEnum):
 
 
 class EntitySummary(BaseModel):
-    name: str
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str = Field(min_length=1)
     entity_type: EntityType
 
 
 class ExtractedEntity(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     type: EntityType
-    name: str
+    name: str = Field(min_length=1)
     properties: dict[str, object] = Field(default_factory=dict)
     confidence: ConfidenceFloat
     source_span: str
 
 
 class ExtractedRelationship(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     source_entity: str
     relationship_type: RelationshipType
     target_entity: str
@@ -49,6 +55,8 @@ class ExtractedRelationship(BaseModel):
 
 
 class ExtractionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     entities: list[ExtractedEntity]
     relationships: list[ExtractedRelationship]
     confidence: ConfidenceFloat

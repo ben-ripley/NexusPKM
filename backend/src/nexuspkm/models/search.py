@@ -10,13 +10,15 @@ from __future__ import annotations
 
 from typing import Annotated, Self
 
-from pydantic import AnyUrl, AwareDatetime, BaseModel, Field, model_validator
+from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from nexuspkm.models.document import ScoreFloat, SourceType
 from nexuspkm.models.entity import EntitySummary, EntityType
 
 
 class SearchFilters(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     source_types: list[SourceType] | None = None
     date_from: AwareDatetime | None = None
     date_to: AwareDatetime | None = None
@@ -35,6 +37,8 @@ class SearchFilters(BaseModel):
 
 
 class SearchRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     query: str = Field(min_length=1)
     filters: SearchFilters | None = None
     top_k: Annotated[int, Field(ge=1, le=200)] = 20
@@ -42,22 +46,30 @@ class SearchRequest(BaseModel):
 
 
 class DateBucket(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     date: AwareDatetime
     count: int
 
 
 class EntityCount(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     name: str
     entity_type: EntityType
     count: int
 
 
 class TagCount(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     tag: str
     count: int
 
 
 class SearchFacets(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     source_types: dict[SourceType, int]
     date_histogram: list[DateBucket]
     top_entities: list[EntityCount]
@@ -65,9 +77,11 @@ class SearchFacets(BaseModel):
 
 
 class SearchResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     id: str = Field(min_length=1)
     title: str = Field(min_length=1)
-    excerpt: str
+    excerpt: str = Field(min_length=1)
     source_type: SourceType
     source_id: str = Field(min_length=1)
     relevance_score: ScoreFloat
@@ -78,6 +92,8 @@ class SearchResult(BaseModel):
 
 
 class SearchResponse(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     results: list[SearchResult]
     total_count: int = Field(ge=0)
     facets: SearchFacets

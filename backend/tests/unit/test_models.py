@@ -57,120 +57,110 @@ class TestProcessingStatus:
 
 
 class TestDocumentMetadata:
-    def _make(self, **overrides: object) -> dict[str, object]:
-        base: dict[str, object] = {
-            "source_type": "teams_transcript",
-            "source_id": "meeting-123",
-            "title": "Sprint Planning",
-            "created_at": NOW,
-            "updated_at": NOW,
-            "synced_at": NOW,
-        }
-        base.update(overrides)
-        return base
+    # Shared valid data dict used by validation-failure tests via model_validate()
+    _VALID: dict[str, object] = {
+        "source_type": "teams_transcript",
+        "source_id": "meeting-123",
+        "title": "Sprint Planning",
+        "created_at": NOW,
+        "updated_at": NOW,
+        "synced_at": NOW,
+    }
+
+    def _valid(self) -> object:
+        from nexuspkm.models.document import DocumentMetadata, SourceType
+
+        return DocumentMetadata(
+            source_type=SourceType.TEAMS_TRANSCRIPT,
+            source_id="meeting-123",
+            title="Sprint Planning",
+            created_at=NOW,
+            updated_at=NOW,
+            synced_at=NOW,
+        )
 
     def test_valid_minimal(self) -> None:
-        from nexuspkm.models.document import DocumentMetadata
-
-        meta = DocumentMetadata(**self._make())  # type: ignore[arg-type]
-        assert meta.source_id == "meeting-123"
+        assert self._valid().source_id == "meeting-123"
 
     def test_participants_defaults_empty(self) -> None:
-        from nexuspkm.models.document import DocumentMetadata
-
-        meta = DocumentMetadata(**self._make())  # type: ignore[arg-type]
-        assert meta.participants == []
+        assert self._valid().participants == []
 
     def test_tags_defaults_empty(self) -> None:
-        from nexuspkm.models.document import DocumentMetadata
-
-        meta = DocumentMetadata(**self._make())  # type: ignore[arg-type]
-        assert meta.tags == []
+        assert self._valid().tags == []
 
     def test_custom_defaults_empty_dict(self) -> None:
-        from nexuspkm.models.document import DocumentMetadata
-
-        meta = DocumentMetadata(**self._make())  # type: ignore[arg-type]
-        assert meta.custom == {}
+        assert self._valid().custom == {}
 
     def test_author_defaults_none(self) -> None:
-        from nexuspkm.models.document import DocumentMetadata
-
-        meta = DocumentMetadata(**self._make())  # type: ignore[arg-type]
-        assert meta.author is None
+        assert self._valid().author is None
 
     def test_url_defaults_none(self) -> None:
-        from nexuspkm.models.document import DocumentMetadata
-
-        meta = DocumentMetadata(**self._make())  # type: ignore[arg-type]
-        assert meta.url is None
+        assert self._valid().url is None
 
     def test_missing_source_type_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
-        data = self._make()
-        del data["source_type"]
         with pytest.raises(ValidationError):
-            DocumentMetadata(**data)  # type: ignore[arg-type]
+            DocumentMetadata.model_validate(
+                {k: v for k, v in self._VALID.items() if k != "source_type"}
+            )
 
     def test_missing_source_id_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
-        data = self._make()
-        del data["source_id"]
         with pytest.raises(ValidationError):
-            DocumentMetadata(**data)  # type: ignore[arg-type]
+            DocumentMetadata.model_validate(
+                {k: v for k, v in self._VALID.items() if k != "source_id"}
+            )
 
     def test_missing_title_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
-        data = self._make()
-        del data["title"]
         with pytest.raises(ValidationError):
-            DocumentMetadata(**data)  # type: ignore[arg-type]
+            DocumentMetadata.model_validate({k: v for k, v in self._VALID.items() if k != "title"})
 
     def test_missing_created_at_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
-        data = self._make()
-        del data["created_at"]
         with pytest.raises(ValidationError):
-            DocumentMetadata(**data)  # type: ignore[arg-type]
+            DocumentMetadata.model_validate(
+                {k: v for k, v in self._VALID.items() if k != "created_at"}
+            )
 
     def test_missing_updated_at_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
-        data = self._make()
-        del data["updated_at"]
         with pytest.raises(ValidationError):
-            DocumentMetadata(**data)  # type: ignore[arg-type]
+            DocumentMetadata.model_validate(
+                {k: v for k, v in self._VALID.items() if k != "updated_at"}
+            )
 
     def test_missing_synced_at_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
-        data = self._make()
-        del data["synced_at"]
         with pytest.raises(ValidationError):
-            DocumentMetadata(**data)  # type: ignore[arg-type]
+            DocumentMetadata.model_validate(
+                {k: v for k, v in self._VALID.items() if k != "synced_at"}
+            )
 
     def test_invalid_source_type_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
         with pytest.raises(ValidationError):
-            DocumentMetadata(**self._make(source_type="not_a_type"))  # type: ignore[arg-type]
+            DocumentMetadata.model_validate({**self._VALID, "source_type": "not_a_type"})
 
     def test_naive_datetime_rejected(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
         naive = datetime.datetime(2026, 3, 18, 12, 0, 0)  # no tzinfo
         with pytest.raises(ValidationError):
-            DocumentMetadata(**self._make(created_at=naive))  # type: ignore[arg-type]
+            DocumentMetadata.model_validate({**self._VALID, "created_at": naive})
 
     def test_source_id_empty_string_raises(self) -> None:
         from nexuspkm.models.document import DocumentMetadata
 
         with pytest.raises(ValidationError):
-            DocumentMetadata(**self._make(source_id=""))  # type: ignore[arg-type]
+            DocumentMetadata.model_validate({**self._VALID, "source_id": ""})
 
 
 class TestDocument:
@@ -208,12 +198,20 @@ class TestDocument:
         from nexuspkm.models.document import Document
 
         with pytest.raises(ValidationError):
-            Document(
-                id="doc-1",
-                content="Hello",
-                metadata=self._meta(),
-                processing_status="bad_status",  # type: ignore[arg-type]
+            Document.model_validate(
+                {
+                    "id": "doc-1",
+                    "content": "Hello",
+                    "metadata": self._meta(),
+                    "processing_status": "bad_status",
+                }
             )
+
+    def test_empty_content_raises(self) -> None:
+        from nexuspkm.models.document import Document
+
+        with pytest.raises(ValidationError):
+            Document(id="doc-1", content="", metadata=self._meta())
 
     def test_id_empty_string_raises(self) -> None:
         from nexuspkm.models.document import Document
@@ -336,6 +334,21 @@ class TestChunkResult:
         )
         assert cr.chunk_id == "c-1"
         assert cr.score == 0.85
+
+    def test_empty_text_raises(self) -> None:
+        from nexuspkm.models.document import ChunkResult
+
+        with pytest.raises(ValidationError):
+            ChunkResult(
+                chunk_id="c-1",
+                document_id="doc-1",
+                text="",
+                score=0.5,
+                source_type="jira_issue",
+                source_id="NXP-1",
+                title="Title",
+                created_at=NOW,
+            )
 
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.document import ChunkResult
@@ -525,6 +538,12 @@ class TestEntitySummary:
         assert es.name == "Alice"
         assert es.entity_type == "person"
 
+    def test_empty_name_raises(self) -> None:
+        from nexuspkm.models.entity import EntitySummary, EntityType
+
+        with pytest.raises(ValidationError):
+            EntitySummary(name="", entity_type=EntityType.PERSON)
+
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.entity import EntitySummary, EntityType
 
@@ -558,6 +577,12 @@ class TestExtractedEntity:
 
         ee = ExtractedEntity(type=EntityType.TOPIC, name="AI", confidence=1.0, source_span="span")
         assert ee.confidence == 1.0
+
+    def test_empty_name_raises(self) -> None:
+        from nexuspkm.models.entity import EntityType, ExtractedEntity
+
+        with pytest.raises(ValidationError):
+            ExtractedEntity(type=EntityType.TOPIC, name="", confidence=0.5, source_span="span")
 
     def test_confidence_below_zero_raises(self) -> None:
         from nexuspkm.models.entity import EntityType, ExtractedEntity
@@ -749,6 +774,12 @@ class TestSearchFilters:
         later = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
         with pytest.raises(ValidationError):
             SearchFilters(date_from=later, date_to=earlier)
+
+    def test_date_from_equal_to_date_to_valid(self) -> None:
+        from nexuspkm.models.search import SearchFilters
+
+        sf = SearchFilters(date_from=NOW, date_to=NOW)
+        assert sf.date_from == sf.date_to
 
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.search import SearchFilters
@@ -1020,7 +1051,15 @@ class TestChatMessage:
         from nexuspkm.models.chat import ChatMessage
 
         with pytest.raises(ValidationError):
-            ChatMessage(id="m-3", role="system", content="bad", timestamp=NOW)  # type: ignore[arg-type]
+            ChatMessage.model_validate(
+                {"id": "m-3", "role": "system", "content": "bad", "timestamp": NOW}
+            )
+
+    def test_empty_content_raises(self) -> None:
+        from nexuspkm.models.chat import ChatMessage
+
+        with pytest.raises(ValidationError):
+            ChatMessage(id="m-1", role="user", content="", timestamp=NOW)
 
     def test_sources_defaults_empty(self) -> None:
         from nexuspkm.models.chat import ChatMessage
@@ -1074,6 +1113,16 @@ class TestChatSession:
 
         with pytest.raises(ValidationError):
             ChatSession(id="s-1", title="", created_at=NOW, updated_at=NOW)
+
+    def test_updated_at_before_created_at_raises(self) -> None:
+        import datetime as dt
+
+        from nexuspkm.models.chat import ChatSession
+
+        earlier = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+        later = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
+        with pytest.raises(ValidationError):
+            ChatSession(id="s-1", title="Chat", created_at=later, updated_at=earlier)
 
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.chat import ChatMessage, ChatSession
@@ -1183,3 +1232,33 @@ class TestModelsPackageExports:
         from nexuspkm.models import ScoreFloat
 
         assert ScoreFloat is not None
+
+    def test_models_reject_extra_fields(self) -> None:
+        from nexuspkm.models.document import Document, DocumentMetadata, SourceType
+
+        with pytest.raises(ValidationError):
+            DocumentMetadata.model_validate(
+                {
+                    "source_type": SourceType.OBSIDIAN_NOTE,
+                    "source_id": "n-1",
+                    "title": "Note",
+                    "created_at": NOW,
+                    "updated_at": NOW,
+                    "synced_at": NOW,
+                    "unexpected_field": "bad",
+                }
+            )
+        with pytest.raises(ValidationError):
+            Document(
+                id="d-1",
+                content="text",
+                metadata=DocumentMetadata(
+                    source_type=SourceType.OBSIDIAN_NOTE,
+                    source_id="n-1",
+                    title="Note",
+                    created_at=NOW,
+                    updated_at=NOW,
+                    synced_at=NOW,
+                ),
+                unknown_field="oops",  # type: ignore[call-arg]
+            )
