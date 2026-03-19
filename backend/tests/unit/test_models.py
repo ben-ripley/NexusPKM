@@ -162,6 +162,18 @@ class TestDocumentMetadata:
         with pytest.raises(ValidationError):
             DocumentMetadata.model_validate({**self._VALID, "source_id": ""})
 
+    def test_updated_at_before_created_at_raises(self) -> None:
+        import datetime as dt
+
+        from nexuspkm.models.document import DocumentMetadata
+
+        earlier = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+        later = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
+        with pytest.raises(ValidationError):
+            DocumentMetadata.model_validate(
+                {**self._VALID, "created_at": later, "updated_at": earlier}
+            )
+
 
 class TestDocument:
     def _meta(self) -> object:
@@ -584,6 +596,12 @@ class TestExtractedEntity:
         with pytest.raises(ValidationError):
             ExtractedEntity(type=EntityType.TOPIC, name="", confidence=0.5, source_span="span")
 
+    def test_empty_source_span_raises(self) -> None:
+        from nexuspkm.models.entity import EntityType, ExtractedEntity
+
+        with pytest.raises(ValidationError):
+            ExtractedEntity(type=EntityType.TOPIC, name="AI", confidence=0.5, source_span="")
+
     def test_confidence_below_zero_raises(self) -> None:
         from nexuspkm.models.entity import EntityType, ExtractedEntity
 
@@ -647,6 +665,30 @@ class TestExtractedRelationship:
                 target_entity="X",
                 confidence=0.5,
                 context="ctx",
+            )
+
+    def test_empty_source_entity_raises(self) -> None:
+        from nexuspkm.models.entity import ExtractedRelationship
+
+        with pytest.raises(ValidationError):
+            ExtractedRelationship(
+                source_entity="",
+                relationship_type="ATTENDED",
+                target_entity="Meeting",
+                confidence=0.5,
+                context="ctx",
+            )
+
+    def test_empty_context_raises(self) -> None:
+        from nexuspkm.models.entity import ExtractedRelationship
+
+        with pytest.raises(ValidationError):
+            ExtractedRelationship(
+                source_entity="Alice",
+                relationship_type="ATTENDED",
+                target_entity="Meeting",
+                confidence=0.5,
+                context="",
             )
 
     def test_confidence_out_of_range_raises(self) -> None:

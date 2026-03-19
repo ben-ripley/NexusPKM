@@ -13,9 +13,9 @@ Spec: F-002 FR-1, FR-4, FR-5
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Self
 
-from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AnyUrl, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 from nexuspkm.models.entity import EntityType
 from nexuspkm.models.relationship import RelationshipType
@@ -57,6 +57,12 @@ class DocumentMetadata(BaseModel):
     updated_at: AwareDatetime
     synced_at: AwareDatetime
     custom: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def updated_at_not_before_created_at(self) -> Self:
+        if self.updated_at < self.created_at:
+            raise ValueError("updated_at must be >= created_at")
+        return self
 
 
 class Document(BaseModel):
@@ -102,7 +108,7 @@ class EntityResult(BaseModel):
     entity_id: str = Field(min_length=1)
     entity_type: EntityType
     name: str = Field(min_length=1)
-    context: str
+    context: str = Field(min_length=1)
 
 
 class RelResult(BaseModel):
@@ -111,7 +117,7 @@ class RelResult(BaseModel):
     source_entity: str = Field(min_length=1)
     relationship_type: RelationshipType
     target_entity: str = Field(min_length=1)
-    context: str
+    context: str = Field(min_length=1)
 
 
 class RetrievalResult(BaseModel):

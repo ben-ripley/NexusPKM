@@ -41,17 +41,17 @@ class ExtractedEntity(BaseModel):
     name: str = Field(min_length=1)
     properties: dict[str, object] = Field(default_factory=dict)
     confidence: ConfidenceFloat
-    source_span: str
+    source_span: str = Field(min_length=1)
 
 
 class ExtractedRelationship(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source_entity: str
+    source_entity: str = Field(min_length=1)
     relationship_type: RelationshipType
-    target_entity: str
+    target_entity: str = Field(min_length=1)
     confidence: ConfidenceFloat
-    context: str
+    context: str = Field(min_length=1)
 
 
 class ExtractionResult(BaseModel):
