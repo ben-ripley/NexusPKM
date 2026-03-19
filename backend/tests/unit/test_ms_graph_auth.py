@@ -14,6 +14,7 @@ from msal import SerializableTokenCache
 from nexuspkm.connectors.ms_graph.auth import (
     AuthFlowContext,
     DeviceCodeInfo,
+    DeviceFlowDict,
     MicrosoftGraphAuth,
 )
 
@@ -47,8 +48,6 @@ def _mock_build(mock_app: MagicMock) -> tuple[MagicMock, SerializableTokenCache]
 
 def _make_auth_flow_context(mock_app: MagicMock, flow_dict: dict[str, object]) -> AuthFlowContext:
     """Build an AuthFlowContext with a mock app for use in poll_for_token tests."""
-    from nexuspkm.connectors.ms_graph.auth import DeviceFlowDict
-
     flow = DeviceFlowDict(
         user_code=str(flow_dict.get("user_code", "X")),
         device_code=str(flow_dict.get("device_code", "d")),
@@ -190,6 +189,20 @@ def test_save_token_cache_cleans_up_tmp_file_on_write_failure(token_dir: Path) -
     with (
         patch("nexuspkm.connectors.ms_graph.auth.os.write", side_effect=OSError("disk full")),
         pytest.raises(OSError, match="disk full"),
+    ):
+        auth._save_token_cache(cache)
+
+    assert list(token_dir.glob("*.tmp")) == []
+
+
+def test_save_token_cache_cleans_up_tmp_file_on_fchmod_failure(token_dir: Path) -> None:
+    """If os.fchmod fails, the .tmp file is deleted and the exception re-raised."""
+    auth = MicrosoftGraphAuth(token_dir)
+    cache = SerializableTokenCache()
+
+    with (
+        patch("nexuspkm.connectors.ms_graph.auth.os.fchmod", side_effect=OSError("fchmod failed")),
+        pytest.raises(OSError, match="fchmod failed"),
     ):
         auth._save_token_cache(cache)
 
