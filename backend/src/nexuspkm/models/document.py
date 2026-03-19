@@ -132,3 +132,13 @@ class RetrievalResult(BaseModel):
     relationships: list[RelResult]
     combined_score: ScoreFloat
     sources: list[SourceAttribution]
+
+
+class SyncState(BaseModel):
+    """Connector sync checkpoint — persisted between sync runs."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    last_synced_at: AwareDatetime | None = None
+    cursor: str | None = None
+    extra: dict[str, object] = Field(default_factory=dict)
