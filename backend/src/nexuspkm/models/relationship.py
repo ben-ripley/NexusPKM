@@ -11,6 +11,9 @@ from __future__ import annotations
 from enum import StrEnum
 
 
+# Values are UPPER_CASE by convention to match Kuzu graph DB relationship-type
+# identifiers (e.g. MATCH (a)-[:ATTENDED]->(b)). This intentionally differs from
+# the lowercase values used in EntityType, SourceType, and ProcessingStatus.
 class RelationshipType(StrEnum):
     ATTENDED = "ATTENDED"
     MENTIONED_IN = "MENTIONED_IN"

@@ -49,22 +49,22 @@ class DateBucket(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     date: AwareDatetime
-    count: int
+    count: int = Field(ge=0)
 
 
 class EntityCount(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    name: str
+    name: str = Field(min_length=1)
     entity_type: EntityType
-    count: int
+    count: int = Field(ge=0)
 
 
 class TagCount(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    tag: str
-    count: int
+    tag: str = Field(min_length=1)
+    count: int = Field(ge=0)
 
 
 class SearchFacets(BaseModel):
@@ -97,6 +97,7 @@ class SearchResponse(BaseModel):
     results: list[SearchResult]
     total_count: int = Field(ge=0)
     facets: SearchFacets
+    # Raw entity name strings extracted from the query for display / highlighting.
     query_entities: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")

@@ -97,7 +97,9 @@ class ChunkResult(BaseModel):
     chunk_id: str = Field(min_length=1)
     document_id: str = Field(min_length=1)
     text: str = Field(min_length=1)
-    score: float  # cosine similarity — not bounded to [0, 1]
+    # Cosine similarity; lower-bounded at -1.0 (unit-vector models) but can
+    # exceed 1.0 for non-normalised embeddings, so not bounded above.
+    score: float = Field(ge=-1.0)
     source_type: SourceType
     source_id: str = Field(min_length=1)
     title: str = Field(min_length=1)

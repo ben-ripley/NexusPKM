@@ -353,6 +353,21 @@ class TestChunkResult:
         assert cr.chunk_id == "c-1"
         assert cr.score == 0.85
 
+    def test_score_below_minus_one_raises(self) -> None:
+        from nexuspkm.models.document import ChunkResult
+
+        with pytest.raises(ValidationError):
+            ChunkResult(
+                chunk_id="c-1",
+                document_id="doc-1",
+                text="text",
+                score=-1.1,
+                source_type="jira_issue",
+                source_id="NXP-1",
+                title="Title",
+                created_at=NOW,
+            )
+
     def test_empty_text_raises(self) -> None:
         from nexuspkm.models.document import ChunkResult
 
@@ -979,6 +994,38 @@ class TestSearchFacets:
                 top_tags=[],
             )
 
+    def test_date_bucket_negative_count_raises(self) -> None:
+        from nexuspkm.models.search import DateBucket
+
+        with pytest.raises(ValidationError):
+            DateBucket(date=NOW, count=-1)
+
+    def test_entity_count_empty_name_raises(self) -> None:
+        from nexuspkm.models.entity import EntityType
+        from nexuspkm.models.search import EntityCount
+
+        with pytest.raises(ValidationError):
+            EntityCount(name="", entity_type=EntityType.PERSON, count=1)
+
+    def test_entity_count_negative_count_raises(self) -> None:
+        from nexuspkm.models.entity import EntityType
+        from nexuspkm.models.search import EntityCount
+
+        with pytest.raises(ValidationError):
+            EntityCount(name="Alice", entity_type=EntityType.PERSON, count=-1)
+
+    def test_tag_count_empty_tag_raises(self) -> None:
+        from nexuspkm.models.search import TagCount
+
+        with pytest.raises(ValidationError):
+            TagCount(tag="", count=1)
+
+    def test_tag_count_negative_count_raises(self) -> None:
+        from nexuspkm.models.search import TagCount
+
+        with pytest.raises(ValidationError):
+            TagCount(tag="ai", count=-1)
+
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.search import SearchFacets
 
@@ -1222,9 +1269,9 @@ class TestModelsPackageExports:
     def test_enum_exports(self) -> None:
         from enum import StrEnum
 
-        from nexuspkm.models import ProcessingStatus, RelationshipType, SourceType
+        from nexuspkm.models import EntityType, ProcessingStatus, RelationshipType, SourceType
 
-        for cls in (SourceType, ProcessingStatus, RelationshipType):
+        for cls in (SourceType, ProcessingStatus, RelationshipType, EntityType):
             assert issubclass(cls, StrEnum)
 
     def test_entity_exports(self) -> None:
