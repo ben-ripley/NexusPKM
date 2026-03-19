@@ -18,6 +18,7 @@ from nexuspkm.models.document import (
     SourceType,
 )
 from nexuspkm.models.entity import (
+    ConfidenceFloat,
     EntitySummary,
     EntityType,
     ExtractedEntity,
@@ -52,6 +53,7 @@ __all__ = [
     "SourceAttribution",
     "SourceType",
     # entity
+    "ConfidenceFloat",
     "EntitySummary",
     "EntityType",
     "ExtractedEntity",

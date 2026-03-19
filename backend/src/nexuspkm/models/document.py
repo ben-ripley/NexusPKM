@@ -15,7 +15,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated
 
-from pydantic import AwareDatetime, BaseModel, Field
+from pydantic import AnyUrl, AwareDatetime, BaseModel, Field
 
 from nexuspkm.models.entity import EntityType
 from nexuspkm.models.relationship import RelationshipType
@@ -45,12 +45,12 @@ class ProcessingStatus(StrEnum):
 
 class DocumentMetadata(BaseModel):
     source_type: SourceType
-    source_id: str
-    title: str
+    source_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
     author: str | None = None
     participants: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
-    url: str | None = None
+    url: AnyUrl | None = None
     created_at: AwareDatetime
     updated_at: AwareDatetime
     synced_at: AwareDatetime
@@ -58,7 +58,7 @@ class DocumentMetadata(BaseModel):
 
 
 class Document(BaseModel):
-    id: str
+    id: str = Field(min_length=1)
     content: str
     metadata: DocumentMetadata
     chunks: list[str] = Field(default_factory=list)
@@ -66,30 +66,30 @@ class Document(BaseModel):
 
 
 class SourceAttribution(BaseModel):
-    document_id: str
-    title: str
+    document_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
     source_type: SourceType
-    source_id: str
-    excerpt: str
+    source_id: str = Field(min_length=1)
+    excerpt: str = Field(min_length=1)
     relevance_score: ScoreFloat
     created_at: AwareDatetime
-    url: str | None = None
+    url: AnyUrl | None = None
     participants: list[str] = Field(default_factory=list)
 
 
 class ChunkResult(BaseModel):
-    chunk_id: str
-    document_id: str
+    chunk_id: str = Field(min_length=1)
+    document_id: str = Field(min_length=1)
     text: str
     score: float  # cosine similarity — not bounded to [0, 1]
     source_type: SourceType
-    source_id: str
-    title: str
+    source_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
     created_at: AwareDatetime
 
 
 class EntityResult(BaseModel):
-    entity_id: str
+    entity_id: str = Field(min_length=1)
     entity_type: EntityType
     name: str
     context: str

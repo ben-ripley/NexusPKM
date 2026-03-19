@@ -17,7 +17,7 @@ from nexuspkm.models.document import SourceAttribution
 
 
 class ChatMessage(BaseModel):
-    id: str
+    id: str = Field(min_length=1)
     role: Literal["user", "assistant"]
     content: str
     sources: list[SourceAttribution] = Field(default_factory=list)
@@ -25,8 +25,8 @@ class ChatMessage(BaseModel):
 
 
 class ChatSession(BaseModel):
-    id: str
-    title: str
+    id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
     messages: list[ChatMessage] = Field(default_factory=list)
     created_at: AwareDatetime
     updated_at: AwareDatetime

@@ -159,34 +159,49 @@ class TestDocumentMetadata:
         with pytest.raises(ValidationError):
             DocumentMetadata(**self._make(source_type="not_a_type"))  # type: ignore[arg-type]
 
+    def test_naive_datetime_rejected(self) -> None:
+        from nexuspkm.models.document import DocumentMetadata
+
+        naive = datetime.datetime(2026, 3, 18, 12, 0, 0)  # no tzinfo
+        with pytest.raises(ValidationError):
+            DocumentMetadata(**self._make(created_at=naive))  # type: ignore[arg-type]
+
+    def test_source_id_empty_string_raises(self) -> None:
+        from nexuspkm.models.document import DocumentMetadata
+
+        with pytest.raises(ValidationError):
+            DocumentMetadata(**self._make(source_id=""))  # type: ignore[arg-type]
+
 
 class TestDocument:
-    def _meta(self) -> dict[str, object]:
-        return {
-            "source_type": "obsidian_note",
-            "source_id": "note-abc",
-            "title": "My Note",
-            "created_at": NOW,
-            "updated_at": NOW,
-            "synced_at": NOW,
-        }
+    def _meta(self) -> object:
+        from nexuspkm.models.document import DocumentMetadata
+
+        return DocumentMetadata(
+            source_type="obsidian_note",
+            source_id="note-abc",
+            title="My Note",
+            created_at=NOW,
+            updated_at=NOW,
+            synced_at=NOW,
+        )
 
     def test_valid_document(self) -> None:
         from nexuspkm.models.document import Document
 
-        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())  # type: ignore[arg-type]
+        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())
         assert doc.id == "doc-1"
 
     def test_processing_status_defaults_pending(self) -> None:
         from nexuspkm.models.document import Document
 
-        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())  # type: ignore[arg-type]
+        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())
         assert doc.processing_status == "pending"
 
     def test_chunks_defaults_empty(self) -> None:
         from nexuspkm.models.document import Document
 
-        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())  # type: ignore[arg-type]
+        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())
         assert doc.chunks == []
 
     def test_invalid_processing_status_raises(self) -> None:
@@ -196,14 +211,20 @@ class TestDocument:
             Document(
                 id="doc-1",
                 content="Hello",
-                metadata=self._meta(),  # type: ignore[arg-type]
+                metadata=self._meta(),
                 processing_status="bad_status",  # type: ignore[arg-type]
             )
+
+    def test_id_empty_string_raises(self) -> None:
+        from nexuspkm.models.document import Document
+
+        with pytest.raises(ValidationError):
+            Document(id="", content="Hello", metadata=self._meta())
 
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.document import Document
 
-        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())  # type: ignore[arg-type]
+        doc = Document(id="doc-1", content="Hello world", metadata=self._meta())
         restored = Document.model_validate_json(doc.model_dump_json())
         assert restored.id == doc.id
         assert restored.processing_status == doc.processing_status
@@ -426,6 +447,56 @@ class TestRetrievalResult:
         )
         restored = RetrievalResult.model_validate_json(rr.model_dump_json())
         assert restored.combined_score == rr.combined_score
+
+    def test_non_empty_nested_roundtrip(self) -> None:
+        from nexuspkm.models.document import (
+            ChunkResult,
+            EntityResult,
+            RelResult,
+            RetrievalResult,
+            SourceAttribution,
+        )
+
+        chunk = ChunkResult(
+            chunk_id="c-1",
+            document_id="doc-1",
+            text="chunk text",
+            score=0.9,
+            source_type="jira_issue",
+            source_id="NXP-1",
+            title="Issue",
+            created_at=NOW,
+        )
+        entity = EntityResult(entity_id="e-1", entity_type="person", name="Alice", context="ctx")
+        rel = RelResult(
+            source_entity="Alice",
+            relationship_type="ATTENDED",
+            target_entity="Meeting",
+            context="ctx",
+        )
+        sa = SourceAttribution(
+            document_id="doc-1",
+            title="Issue",
+            source_type="jira_issue",
+            source_id="NXP-1",
+            excerpt="excerpt",
+            relevance_score=0.8,
+            created_at=NOW,
+        )
+        rr = RetrievalResult(
+            chunks=[chunk],
+            entities=[entity],
+            relationships=[rel],
+            combined_score=0.75,
+            sources=[sa],
+        )
+        restored = RetrievalResult.model_validate_json(rr.model_dump_json())
+        assert len(restored.chunks) == 1
+        assert restored.chunks[0].chunk_id == "c-1"
+        assert len(restored.entities) == 1
+        assert restored.entities[0].name == "Alice"
+        assert len(restored.relationships) == 1
+        assert len(restored.sources) == 1
 
 
 # ===========================================================================
@@ -659,6 +730,26 @@ class TestSearchFilters:
         assert sf.tags == ["ai", "search"]
         assert sf.source_types is None
 
+    def test_date_range_valid(self) -> None:
+        import datetime as dt
+
+        from nexuspkm.models.search import SearchFilters
+
+        earlier = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+        later = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
+        sf = SearchFilters(date_from=earlier, date_to=later)
+        assert sf.date_from == earlier
+
+    def test_inverted_date_range_raises(self) -> None:
+        import datetime as dt
+
+        from nexuspkm.models.search import SearchFilters
+
+        earlier = dt.datetime(2026, 1, 1, tzinfo=dt.UTC)
+        later = dt.datetime(2026, 6, 1, tzinfo=dt.UTC)
+        with pytest.raises(ValidationError):
+            SearchFilters(date_from=later, date_to=earlier)
+
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.search import SearchFilters
 
@@ -688,6 +779,12 @@ class TestSearchRequest:
         req = SearchRequest(query="q", top_k=5, include_graph_expansion=False)
         assert req.top_k == 5
         assert req.include_graph_expansion is False
+
+    def test_empty_query_raises(self) -> None:
+        from nexuspkm.models.search import SearchRequest
+
+        with pytest.raises(ValidationError):
+            SearchRequest(query="")
 
     def test_top_k_zero_raises(self) -> None:
         from nexuspkm.models.search import SearchRequest
@@ -779,17 +876,29 @@ class TestSearchResult:
 
 class TestSearchFacets:
     def test_valid_construct(self) -> None:
+        from nexuspkm.models.document import SourceType
         from nexuspkm.models.entity import EntityType
         from nexuspkm.models.search import DateBucket, EntityCount, SearchFacets, TagCount
 
         facets = SearchFacets(
-            source_types={"jira_issue": 5, "obsidian_note": 3},
+            source_types={SourceType.JIRA_ISSUE: 5, SourceType.OBSIDIAN_NOTE: 3},
             date_histogram=[DateBucket(date=NOW, count=8)],
             top_entities=[EntityCount(name="Alice", entity_type=EntityType.PERSON, count=3)],
             top_tags=[TagCount(tag="ai", count=5)],
         )
-        assert facets.source_types["jira_issue"] == 5
+        assert facets.source_types[SourceType.JIRA_ISSUE] == 5
         assert len(facets.date_histogram) == 1
+
+    def test_invalid_source_type_key_raises(self) -> None:
+        from nexuspkm.models.search import SearchFacets
+
+        with pytest.raises(ValidationError):
+            SearchFacets(
+                source_types={"not_a_source": 5},
+                date_histogram=[],
+                top_entities=[],
+                top_tags=[],
+            )
 
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.search import SearchFacets
@@ -819,6 +928,52 @@ class TestSearchResponse:
         assert resp.total_count == 0
         assert resp.query_entities == []
 
+    def test_negative_total_count_raises(self) -> None:
+        from nexuspkm.models.search import SearchFacets, SearchResponse
+
+        facets = SearchFacets(source_types={}, date_histogram=[], top_entities=[], top_tags=[])
+        with pytest.raises(ValidationError):
+            SearchResponse(results=[], total_count=-1, facets=facets)
+
+    def test_total_count_less_than_results_raises(self) -> None:
+        from nexuspkm.models.search import SearchFacets, SearchResponse, SearchResult
+
+        facets = SearchFacets(source_types={}, date_histogram=[], top_entities=[], top_tags=[])
+        result = SearchResult(
+            id="r-1",
+            title="T",
+            excerpt="e",
+            source_type="jira_issue",
+            source_id="NXP-1",
+            relevance_score=0.5,
+            created_at=NOW,
+        )
+        with pytest.raises(ValidationError):
+            SearchResponse(results=[result], total_count=0, facets=facets)
+
+    def test_total_count_equals_results_valid(self) -> None:
+        from nexuspkm.models.search import SearchFacets, SearchResponse, SearchResult
+
+        facets = SearchFacets(source_types={}, date_histogram=[], top_entities=[], top_tags=[])
+        result = SearchResult(
+            id="r-1",
+            title="T",
+            excerpt="e",
+            source_type="jira_issue",
+            source_id="NXP-1",
+            relevance_score=0.5,
+            created_at=NOW,
+        )
+        resp = SearchResponse(results=[result], total_count=1, facets=facets)
+        assert resp.total_count == 1
+
+    def test_total_count_greater_than_results_valid(self) -> None:
+        from nexuspkm.models.search import SearchFacets, SearchResponse
+
+        facets = SearchFacets(source_types={}, date_histogram=[], top_entities=[], top_tags=[])
+        resp = SearchResponse(results=[], total_count=100, facets=facets)
+        assert resp.total_count == 100
+
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.search import SearchFacets, SearchResponse
 
@@ -841,6 +996,19 @@ class TestChatMessage:
         msg = ChatMessage(id="m-1", role="user", content="Hello", timestamp=NOW)
         assert msg.role == "user"
         assert msg.sources == []
+
+    def test_naive_datetime_rejected(self) -> None:
+        from nexuspkm.models.chat import ChatMessage
+
+        naive = datetime.datetime(2026, 3, 18, 12, 0, 0)
+        with pytest.raises(ValidationError):
+            ChatMessage(id="m-1", role="user", content="Hi", timestamp=naive)
+
+    def test_empty_id_raises(self) -> None:
+        from nexuspkm.models.chat import ChatMessage
+
+        with pytest.raises(ValidationError):
+            ChatMessage(id="", role="user", content="Hi", timestamp=NOW)
 
     def test_valid_assistant_message(self) -> None:
         from nexuspkm.models.chat import ChatMessage
@@ -901,6 +1069,12 @@ class TestChatSession:
         session = ChatSession(id="s-1", title="Chat", created_at=NOW, updated_at=NOW)
         assert session.messages == []
 
+    def test_empty_title_raises(self) -> None:
+        from nexuspkm.models.chat import ChatSession
+
+        with pytest.raises(ValidationError):
+            ChatSession(id="s-1", title="", created_at=NOW, updated_at=NOW)
+
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.chat import ChatMessage, ChatSession
 
@@ -960,6 +1134,7 @@ class TestModelsPackageExports:
         from pydantic import BaseModel
 
         from nexuspkm.models import (
+            ConfidenceFloat,
             EntitySummary,
             ExtractedEntity,
             ExtractedRelationship,
@@ -968,6 +1143,7 @@ class TestModelsPackageExports:
 
         for cls in (EntitySummary, ExtractedEntity, ExtractedRelationship, ExtractionResult):
             assert issubclass(cls, BaseModel)
+        assert ConfidenceFloat is not None
 
     def test_search_exports(self) -> None:
         from pydantic import BaseModel
