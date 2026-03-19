@@ -30,7 +30,7 @@ docs/                     # User-facing documentation
 
 ```bash
 # Backend
-cd backend && uv sync                          # Install dependencies
+cd backend && uv sync --extra dev              # Install dependencies
 cd backend && uvicorn nexuspkm.main:app --reload  # Run dev server
 cd backend && pytest                           # Run all tests
 cd backend && pytest tests/unit                # Run unit tests only
