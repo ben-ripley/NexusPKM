@@ -87,7 +87,7 @@ class ProviderRegistry:
     ) -> LLMResponse:
         try:
             return await self._llm_primary.generate(messages, **kwargs)
-        except (ProviderError, Exception) as exc:
+        except ProviderError as exc:
             if self._llm_fallback is None:
                 raise
             log.warning(
@@ -100,7 +100,7 @@ class ProviderRegistry:
     async def embed_with_fallback(self, texts: list[str]) -> EmbeddingResponse:
         try:
             return await self._emb_primary.embed(texts)
-        except (ProviderError, Exception) as exc:
+        except ProviderError as exc:
             if self._emb_fallback is None:
                 raise
             log.warning(
@@ -111,13 +111,19 @@ class ProviderRegistry:
             return await self._emb_fallback.embed(texts)
 
     def reload(self, config: ProvidersConfig) -> None:
-        self._config = config
-        self._llm_primary = _make_llm(config.llm.primary)
-        self._llm_fallback = _make_llm(config.llm.fallback) if config.llm.fallback else None
-        self._emb_primary = _make_embedding(config.embedding.primary)
-        self._emb_fallback = (
+        new_llm_primary = _make_llm(config.llm.primary)
+        new_llm_fallback = _make_llm(config.llm.fallback) if config.llm.fallback else None
+        new_emb_primary = _make_embedding(config.embedding.primary)
+        new_emb_fallback = (
             _make_embedding(config.embedding.fallback) if config.embedding.fallback else None
         )
+        (
+            self._config,
+            self._llm_primary,
+            self._llm_fallback,
+            self._emb_primary,
+            self._emb_fallback,
+        ) = (config, new_llm_primary, new_llm_fallback, new_emb_primary, new_emb_fallback)
         log.info(
             "provider_registry_reloaded",
             llm_provider=config.llm.primary.provider,

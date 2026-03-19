@@ -670,3 +670,13 @@ class TestProviderAPIEndpoints:
         client, _ = _build_test_app()
         resp = client.put("/api/providers/config", json={"bad": "data"})
         assert resp.status_code == 422
+
+    def test_put_config_returns_500_when_reload_raises(self) -> None:
+        client, mock_registry = _build_test_app()
+        mock_registry.reload.side_effect = RuntimeError("provider init failed")
+        payload = {
+            "llm": {"primary": {"provider": "openai", "model": "gpt-4o"}},
+            "embedding": {"primary": {"provider": "openai", "model": "text-embedding-3-small"}},
+        }
+        resp = client.put("/api/providers/config", json=payload)
+        assert resp.status_code == 500

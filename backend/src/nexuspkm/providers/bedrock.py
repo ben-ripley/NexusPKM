@@ -84,9 +84,7 @@ class BedrockLLMProvider(BaseLLMProvider):
             output_tokens=output_tokens,
         )
 
-    async def stream(
-        self, messages: list[dict[str, str]], **kwargs: object
-    ) -> AsyncIterator[str]:
+    async def stream(self, messages: list[dict[str, str]], **kwargs: object) -> AsyncIterator[str]:
         chat_messages = _to_chat_messages(messages)
         try:
             async for chunk in self._client.astream_chat(chat_messages):
@@ -136,7 +134,7 @@ class BedrockEmbeddingProvider(BaseEmbeddingProvider):
 
     async def embed_single(self, text: str) -> list[float]:
         try:
-            return await self._client.aget_text_embedding(text)  # type: ignore[no-any-return]
+            return list(await self._client.aget_text_embedding(text))
         except Exception as exc:
             log.error("bedrock_embedding_single_failed", error=str(exc))
             raise ProviderError(str(exc)) from exc
