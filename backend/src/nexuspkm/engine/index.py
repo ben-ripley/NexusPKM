@@ -9,6 +9,7 @@ Spec: F-002
 from __future__ import annotations
 
 import asyncio
+import re
 import threading
 
 import structlog
@@ -23,6 +24,10 @@ from nexuspkm.models.search import SearchFilters
 from nexuspkm.providers.base import BaseEmbeddingProvider
 
 logger = structlog.get_logger(__name__)
+
+# Validates that Cypher label/rel-type identifiers interpolated into queries
+# contain only safe characters — mirrors the same guard in graph_store.py.
+_SAFE_CYPHER_LABEL_RE: re.Pattern[str] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 # Node tables that count as "entities" (excludes Document)
 _ENTITY_TABLES = ("Person", "Project", "Topic", "Decision", "ActionItem", "Meeting")
@@ -54,9 +59,16 @@ class KnowledgeIndex:
     ) -> None:
         self._vector_store = vector_store
         self._graph_store = graph_store
-        self._pipeline = IngestionPipeline(vector_store, graph_store, embedding_provider, chunker)
-        self._retriever = HybridRetriever(vector_store, graph_store, embedding_provider)
-        self._stats_lock = threading.Lock()
+        # Single shared lock ensures mutual exclusion over the Kuzu connection
+        # across concurrent ingest, retrieval, and stats operations.
+        _graph_lock = threading.Lock()
+        self._graph_lock = _graph_lock
+        self._pipeline = IngestionPipeline(
+            vector_store, graph_store, embedding_provider, chunker, graph_lock=_graph_lock
+        )
+        self._retriever = HybridRetriever(
+            vector_store, graph_store, embedding_provider, graph_lock=_graph_lock
+        )
 
     async def insert(self, document: Document) -> Document:
         """Ingest a document into both stores."""
@@ -90,17 +102,24 @@ class KnowledgeIndex:
     # ------------------------------------------------------------------
 
     def _count_graph_stats(self) -> dict[str, int]:
-        with self._stats_lock:
+        with self._graph_lock:
             doc_rows = self._graph_store.execute("MATCH (n:Document) RETURN count(n) AS cnt")
             documents = int(doc_rows[0]["cnt"]) if doc_rows else 0
 
             entities = 0
             for table in _ENTITY_TABLES:
+                # Validate before interpolation — defence-in-depth against accidental
+                # extension of _ENTITY_TABLES with unsafe values.
+                if not _SAFE_CYPHER_LABEL_RE.match(table):
+                    raise ValueError(f"Unsafe entity table name: {table!r}")
                 rows = self._graph_store.execute(f"MATCH (n:{table}) RETURN count(n) AS cnt")
                 entities += int(rows[0]["cnt"]) if rows else 0
 
             relationships = 0
             for rel, (from_t, to_t) in _REL_TABLE_ENDPOINTS.items():
+                for label in (rel, from_t, to_t):
+                    if not _SAFE_CYPHER_LABEL_RE.match(label):
+                        raise ValueError(f"Unsafe Cypher label: {label!r}")
                 rows = self._graph_store.execute(
                     f"MATCH (a:{from_t})-[r:{rel}]->(b:{to_t}) RETURN count(r) AS cnt"
                 )

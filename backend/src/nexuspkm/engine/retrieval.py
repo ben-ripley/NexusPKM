@@ -36,9 +36,6 @@ _VECTOR_WEIGHT = 0.6
 _GRAPH_WEIGHT = 0.3
 _RECENCY_WEIGHT = 0.1
 
-# Number of graph connections that yields a full graph boost (1.0)
-_GRAPH_BOOST_MAX_CONNECTIONS = 5
-
 
 class _GraphData(NamedTuple):
     boost: dict[str, float]
@@ -54,11 +51,19 @@ class HybridRetriever:
         vector_store: VectorStore,
         graph_store: GraphStore,
         embedding_provider: BaseEmbeddingProvider,
+        *,
+        graph_boost_max_connections: int = 5,
+        graph_lock: threading.Lock | None = None,
     ) -> None:
         self._vector_store = vector_store
         self._graph_store = graph_store
         self._embedding_provider = embedding_provider
-        self._graph_lock = threading.Lock()
+        # Number of graph connections (RELATED_TO + TAGGED_WITH) that yields
+        # a full boost of 1.0; tunable per deployment.
+        self._graph_boost_max = graph_boost_max_connections
+        # Accept a shared lock so KnowledgeIndex can serialise all Kuzu access
+        # through one lock when pipeline, retriever, and stats run concurrently.
+        self._graph_lock = graph_lock if graph_lock is not None else threading.Lock()
 
     async def retrieve(
         self,
@@ -168,7 +173,7 @@ class HybridRetriever:
                 related = self._graph_store.get_relationships("RELATED_TO", from_id=doc_id)
                 tagged = self._graph_store.get_relationships("TAGGED_WITH", from_id=doc_id)
                 count = len(related) + len(tagged)
-                boost[doc_id] = min(1.0, float(count) / _GRAPH_BOOST_MAX_CONNECTIONS)
+                boost[doc_id] = min(1.0, float(count) / self._graph_boost_max)
 
                 for rel in tagged:
                     topic = self._graph_store.get_topic(rel["to_id"])

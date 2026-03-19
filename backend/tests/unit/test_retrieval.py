@@ -217,3 +217,13 @@ class TestHybridRetrieverScoring:
         result = await retriever.retrieve("test query", top_k=10)
 
         assert 0.0 <= result.combined_score <= 1.0
+
+    async def test_embed_single_failure_propagates_without_vector_search(self) -> None:
+        retriever, vector_store, _, embedding_provider = _make_retriever()
+        embedding_provider.embed_single = AsyncMock(side_effect=RuntimeError("quota exceeded"))
+
+        with pytest.raises(RuntimeError, match="quota exceeded"):
+            await retriever.retrieve("test query", top_k=5)
+
+        # Vector store must not be called if embedding fails
+        vector_store.search.assert_not_called()

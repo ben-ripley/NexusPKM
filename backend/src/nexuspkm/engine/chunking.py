@@ -6,13 +6,19 @@ Spec: F-002 FR-2
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Protocol
 
 import structlog
 
 from nexuspkm.models.document import Document
 
 logger = structlog.get_logger(__name__)
+
+
+class _TextSplitterProtocol(Protocol):
+    """Structural protocol satisfied by LlamaIndex SentenceSplitter."""
+
+    def split_text(self, text: str) -> list[str]: ...
 
 
 @dataclass
@@ -24,13 +30,19 @@ class ChunkingConfig:
 class DocumentChunker:
     """Split a Document into overlapping text chunks using SentenceSplitter."""
 
-    _splitter: Any  # llama_index.core.node_parser.SentenceSplitter (ignore_missing_imports)
+    _splitter: _TextSplitterProtocol
 
     def __init__(self, config: ChunkingConfig | None = None) -> None:
         if config is None:
             config = ChunkingConfig()
         self._config = config
-        from llama_index.core.node_parser import SentenceSplitter  # noqa: PLC0415
+        try:
+            from llama_index.core.node_parser import SentenceSplitter  # noqa: PLC0415
+        except ImportError as exc:
+            raise ImportError(
+                "llama-index-core is required for DocumentChunker. "
+                "Add it with: uv add llama-index-core"
+            ) from exc
 
         self._splitter = SentenceSplitter(
             chunk_size=config.chunk_size,

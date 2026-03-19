@@ -35,12 +35,16 @@ class IngestionPipeline:
         graph_store: GraphStore,
         embedding_provider: BaseEmbeddingProvider,
         chunker: DocumentChunker | None = None,
+        *,
+        graph_lock: threading.Lock | None = None,
     ) -> None:
         self._vector_store = vector_store
         self._graph_store = graph_store
         self._embedding_provider = embedding_provider
         self._chunker = chunker if chunker is not None else DocumentChunker()
-        self._graph_lock = threading.Lock()
+        # Accept a shared lock so KnowledgeIndex can serialise all Kuzu access
+        # through one lock when pipeline, retriever, and stats run concurrently.
+        self._graph_lock = graph_lock if graph_lock is not None else threading.Lock()
 
     async def ingest(self, document: Document) -> Document:
         """Ingest a document into both stores.
@@ -103,12 +107,25 @@ class IngestionPipeline:
         return updated
 
     async def delete(self, document_id: str) -> None:
-        """Remove document from both stores."""
+        """Remove document from both stores.
+
+        Vector store is deleted first. If the subsequent graph delete fails,
+        the document will be absent from LanceDB but still present in Kuzu —
+        an inconsistent state that is logged as an error for observability.
+        """
         log = logger.bind(document_id=document_id)
         log.info("ingestion.delete")
         await self._vector_store.delete(document_id)
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, self._graph_delete, document_id)
+        try:
+            await loop.run_in_executor(None, self._graph_delete, document_id)
+        except Exception:
+            log.error(
+                "ingestion.delete_graph_failed",
+                exc_info=True,
+                document_id=document_id,
+            )
+            raise
         log.info("ingestion.deleted")
 
     # ------------------------------------------------------------------
