@@ -176,6 +176,21 @@ def test_save_token_cache_cleans_up_tmp_file_on_rename_failure(token_dir: Path) 
     assert not tmp_file.exists()
 
 
+def test_save_token_cache_cleans_up_tmp_file_on_write_failure(token_dir: Path) -> None:
+    """If os.write fails (e.g. disk full), the .tmp file is deleted and the exception re-raised."""
+    auth = MicrosoftGraphAuth(token_dir)
+    cache = SerializableTokenCache()
+
+    with (
+        patch("nexuspkm.connectors.ms_graph.auth.os.write", side_effect=OSError("disk full")),
+        pytest.raises(OSError, match="disk full"),
+    ):
+        auth._save_token_cache(cache)
+
+    tmp_file = token_dir / "ms_graph.tmp"
+    assert not tmp_file.exists()
+
+
 # ---------------------------------------------------------------------------
 # _build_app() — env var validation
 # ---------------------------------------------------------------------------
@@ -459,12 +474,11 @@ async def test_has_cached_account_true_when_account_cached(token_dir: Path) -> N
 
 
 @pytest.mark.asyncio
-async def test_poll_for_token_valueerror_propagates_when_no_context_and_env_missing(
+async def test_poll_for_token_propagates_exception_from_acquire_token(
     token_dir: Path,
 ) -> None:
-    """ValueError from _build_app propagates when poll_for_token falls back to building an app."""
+    """Exceptions raised by acquire_token_by_device_flow propagate out of poll_for_token."""
     auth = MicrosoftGraphAuth(token_dir)
-    # Use a real (empty) context but override its _app to raise ValueError
     mock_app = MagicMock()
     mock_app.acquire_token_by_device_flow.side_effect = ValueError("MS_TENANT_ID required")
     ctx = _make_auth_flow_context(mock_app, {})

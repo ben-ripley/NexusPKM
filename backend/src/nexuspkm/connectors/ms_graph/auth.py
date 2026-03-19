@@ -20,7 +20,7 @@ import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TypedDict
+from typing import ClassVar, TypedDict
 
 import structlog
 from cryptography.fernet import Fernet, InvalidToken
@@ -110,12 +110,12 @@ class AuthFlowContext:
 class MicrosoftGraphAuth:
     """Manages Microsoft Graph OAuth2 authentication for a single user."""
 
-    SCOPES = [
+    SCOPES: ClassVar[tuple[str, ...]] = (
         "OnlineMeetingTranscript.Read",
         "OnlineMeeting.Read",
         "User.Read",
         "offline_access",
-    ]
+    )
 
     def __init__(self, token_dir: Path) -> None:
         self._token_dir = token_dir
@@ -164,9 +164,10 @@ class MicrosoftGraphAuth:
     def _load_token_cache(self) -> SerializableTokenCache:
         """Return a populated MSAL token cache, or an empty one if no file exists.
 
-        Only ``InvalidToken``, ``ValueError``, and ``FileNotFoundError`` are
-        swallowed (expected decryption/deserialization failures). All other
-        exceptions propagate so unexpected errors are not silently masked.
+        ``InvalidToken``, ``ValueError``, ``FileNotFoundError``, and
+        ``PermissionError`` are swallowed (expected decryption/deserialization
+        failures or unreadable cache file). All other exceptions propagate so
+        unexpected errors are not silently masked.
         """
         cache = SerializableTokenCache()
         if not self._cache_file.exists():
@@ -178,7 +179,7 @@ class MicrosoftGraphAuth:
             encrypted = self._cache_file.read_bytes()
             serialized = fernet.decrypt(encrypted).decode()
             cache.deserialize(serialized)
-        except (InvalidToken, ValueError, FileNotFoundError):
+        except (InvalidToken, ValueError, FileNotFoundError, PermissionError):
             logger.warning(
                 "ms_graph_auth.cache_load_failed",
                 path=str(self._cache_file),
@@ -193,21 +194,26 @@ class MicrosoftGraphAuth:
         Written via a temp file + atomic rename with 0o600 permissions.
         Uses ``os.write``/``os.close`` directly so the file descriptor is
         always closed in a ``finally`` block, avoiding any fd leak.
-        The temp file is unlinked if the rename fails.
+        The temp file is unlinked if the write or rename fails.
         """
         key = self._get_or_create_key()
         fernet = Fernet(key)
         encrypted = fernet.encrypt(cache.serialize().encode())
         self._token_dir.mkdir(parents=True, exist_ok=True)
         tmp_file = self._cache_file.with_suffix(".tmp")
+        write_succeeded = False
         fd = os.open(tmp_file, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
         try:
             # fchmod ensures correct permissions even if the file pre-existed with
             # looser permissions (O_TRUNC does not update mode on existing files).
             os.fchmod(fd, 0o600)
             os.write(fd, encrypted)
+            write_succeeded = True
         finally:
             os.close(fd)
+            if not write_succeeded:
+                with contextlib.suppress(OSError):
+                    tmp_file.unlink(missing_ok=True)
         try:
             tmp_file.rename(self._cache_file)
         except Exception:
@@ -350,6 +356,9 @@ class MicrosoftGraphAuth:
 
         # Use a dedicated thread so the long-polling call (up to ``expires_in``
         # seconds, typically 15 min) does not tie up the shared default executor.
+        # Note: if this coroutine is cancelled while awaiting, the executor's
+        # __exit__ will block the event loop until the thread finishes (a known
+        # Python limitation with run_in_executor + context managers).
         with ThreadPoolExecutor(max_workers=1) as pool:
             return await loop.run_in_executor(pool, _blocking_poll)
 
