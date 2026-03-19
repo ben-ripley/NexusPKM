@@ -6,21 +6,61 @@ re-authentication prompting when the refresh token has expired.
 Token storage layout:
     <token_dir>/token.key       — Fernet symmetric key (file permissions: 0o600)
     <token_dir>/ms_graph.json   — Fernet-encrypted MSAL SerializableTokenCache
+
+Note: the private helpers ``_get_or_create_key``, ``_load_token_cache``, and
+``_save_token_cache`` perform blocking filesystem I/O and must only be called
+from within a ``run_in_executor`` closure, never directly from async code.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING
 
 import structlog
 from cryptography.fernet import Fernet
 from msal import PublicClientApplication, SerializableTokenCache
 from pydantic import BaseModel
+from typing_extensions import TypedDict
+
+if TYPE_CHECKING:
+    pass
 
 logger = structlog.get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# MSAL response shapes
+# ---------------------------------------------------------------------------
+
+
+class _DeviceFlowDict(TypedDict, total=True):
+    """Required fields always present in MSAL's initiate_device_flow response."""
+
+    user_code: str
+    device_code: str
+    verification_uri: str
+    expires_in: int
+    interval: int
+    message: str
+
+
+class _TokenResultDict(TypedDict, total=False):
+    """Subset of the dict returned by MSAL token acquisition methods."""
+
+    access_token: str
+    token_type: str
+    expires_in: int
+    error: str
+    error_description: str
+
+
+# ---------------------------------------------------------------------------
+# Public data models
+# ---------------------------------------------------------------------------
 
 
 class DeviceCodeInfo(BaseModel):
@@ -30,6 +70,11 @@ class DeviceCodeInfo(BaseModel):
     verification_uri: str
     expires_in: int
     message: str
+
+
+# ---------------------------------------------------------------------------
+# Auth class
+# ---------------------------------------------------------------------------
 
 
 class MicrosoftGraphAuth:
@@ -46,27 +91,37 @@ class MicrosoftGraphAuth:
         self._token_dir = token_dir
         self._key_file = token_dir / "token.key"
         self._cache_file = token_dir / "ms_graph.json"
+        # Preserved across initiate_device_code_flow → poll_for_token to ensure
+        # the same MSAL app instance (and matching cache) is used for both calls.
+        self._pending_app: PublicClientApplication | None = None
+        self._pending_cache: SerializableTokenCache | None = None
 
     # ------------------------------------------------------------------
-    # Internal helpers
+    # Internal helpers  (sync — must only be called inside run_in_executor)
     # ------------------------------------------------------------------
 
     def _get_or_create_key(self) -> bytes:
         """Load the Fernet key from disk, generating it on first run.
 
-        The key file is created atomically with 0o600 permissions to avoid
-        a TOCTOU window where the key is transiently world-readable.
+        The key file is created atomically with 0o600 permissions to avoid a
+        TOCTOU window where the key is transiently world-readable.
+        ``FileExistsError`` from ``O_EXCL`` is handled by reading the existing
+        key written by a concurrent caller.
         """
         if self._key_file.exists():
             return self._key_file.read_bytes()
 
         self._token_dir.mkdir(parents=True, exist_ok=True)
         key = Fernet.generate_key()
-        # Atomic create with restricted permissions — avoids write+chmod race.
-        fd = os.open(self._key_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(key)
-        logger.info("ms_graph_auth.key_generated", path=str(self._key_file))
+        try:
+            fd = os.open(self._key_file, os.O_CREAT | os.O_WRONLY | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(key)
+            logger.info("ms_graph_auth.key_generated", path=str(self._key_file))
+        except FileExistsError:
+            # Another process created the file between exists() and open().
+            # Fall back to reading the key it wrote.
+            key = self._key_file.read_bytes()
         return key
 
     def _load_token_cache(self) -> SerializableTokenCache:
@@ -93,25 +148,32 @@ class MicrosoftGraphAuth:
     def _save_token_cache(self, cache: SerializableTokenCache) -> None:
         """Encrypt the MSAL token cache and persist it to disk.
 
-        Written atomically with 0o600 permissions to avoid a TOCTOU window
-        where encrypted tokens are transiently world-readable.
+        Written via a temp file + atomic rename with 0o600 permissions.
+        The temp file is cleaned up in a finally block if rename fails.
         """
         key = self._get_or_create_key()
         fernet = Fernet(key)
         serialized = cache.serialize()
         encrypted = fernet.encrypt(serialized.encode())
         self._token_dir.mkdir(parents=True, exist_ok=True)
-        # Write to a temp file then rename for atomicity, with restricted perms.
         tmp_file = self._cache_file.with_suffix(".tmp")
         fd = os.open(tmp_file, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "wb") as f:
-            f.write(encrypted)
-        tmp_file.rename(self._cache_file)
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(encrypted)
+            tmp_file.rename(self._cache_file)
+        except Exception:
+            with contextlib.suppress(OSError):
+                tmp_file.unlink(missing_ok=True)
+            raise
 
-    def _build_app(self) -> PublicClientApplication:
+    def _build_app(self) -> tuple[PublicClientApplication, SerializableTokenCache]:
         """Construct an MSAL PublicClientApplication with the loaded token cache.
 
-        Reads MS_TENANT_ID and MS_CLIENT_ID from environment variables.
+        Returns a ``(app, cache)`` tuple so callers can save the same cache
+        instance after token acquisition without unsafe casting.
+
+        Reads ``MS_TENANT_ID`` and ``MS_CLIENT_ID`` from environment variables.
 
         Raises:
             ValueError: if either required environment variable is missing.
@@ -126,7 +188,8 @@ class MicrosoftGraphAuth:
 
         cache = self._load_token_cache()
         authority = f"https://login.microsoftonline.com/{tenant_id}"
-        return PublicClientApplication(client_id, authority=authority, token_cache=cache)
+        app = PublicClientApplication(client_id, authority=authority, token_cache=cache)
+        return app, cache
 
     # ------------------------------------------------------------------
     # Public API
@@ -142,14 +205,14 @@ class MicrosoftGraphAuth:
         loop = asyncio.get_running_loop()
 
         def _silent_acquire() -> bool:
-            app = self._build_app()
+            app, cache = self._build_app()
             accounts = app.get_accounts()
             if not accounts:
                 return False
 
-            result = app.acquire_token_silent(self.SCOPES, account=accounts[0])
+            result: _TokenResultDict = app.acquire_token_silent(self.SCOPES, account=accounts[0])
             if result and "access_token" in result:
-                self._save_token_cache(cast(SerializableTokenCache, app.token_cache))
+                self._save_token_cache(cache)
                 logger.info("ms_graph_auth.silent_token_acquired")
                 return True
 
@@ -158,18 +221,24 @@ class MicrosoftGraphAuth:
 
         return await loop.run_in_executor(None, _silent_acquire)
 
-    async def initiate_device_code_flow(self) -> tuple[DeviceCodeInfo, dict[str, Any]]:
+    async def initiate_device_code_flow(self) -> tuple[DeviceCodeInfo, _DeviceFlowDict]:
         """Start a device code flow.
 
+        Stores the MSAL app instance internally so that ``poll_for_token``
+        can use the same instance, ensuring consistent cache state.
+
         Returns:
-            A tuple of (DeviceCodeInfo, raw_flow_dict). Pass raw_flow_dict to
-            poll_for_token() to complete authentication.
+            A tuple of (DeviceCodeInfo, flow_dict). Pass flow_dict to
+            ``poll_for_token()`` to complete authentication.
         """
         loop = asyncio.get_running_loop()
 
-        def _initiate() -> tuple[DeviceCodeInfo, dict[str, Any]]:
-            app = self._build_app()
-            flow: dict[str, Any] = app.initiate_device_flow(scopes=self.SCOPES)
+        def _initiate() -> tuple[DeviceCodeInfo, _DeviceFlowDict]:
+            app, cache = self._build_app()
+            # Store for reuse in poll_for_token
+            self._pending_app = app
+            self._pending_cache = cache
+            flow: _DeviceFlowDict = app.initiate_device_flow(scopes=self.SCOPES)
             info = DeviceCodeInfo(
                 user_code=flow["user_code"],
                 verification_uri=flow["verification_uri"],
@@ -185,11 +254,14 @@ class MicrosoftGraphAuth:
 
         return await loop.run_in_executor(None, _initiate)
 
-    async def poll_for_token(self, flow: dict[str, Any]) -> bool:
+    async def poll_for_token(self, flow: _DeviceFlowDict) -> bool:
         """Block until the user authenticates or the flow expires.
 
+        Reuses the MSAL app instance from ``initiate_device_code_flow`` when
+        available, ensuring the resulting token is saved to the same cache.
+
         Args:
-            flow: The raw flow dict returned by initiate_device_code_flow().
+            flow: The flow dict returned by ``initiate_device_code_flow()``.
 
         Returns:
             True if authentication succeeded and the token was saved.
@@ -198,8 +270,15 @@ class MicrosoftGraphAuth:
         loop = asyncio.get_running_loop()
 
         def _blocking_poll() -> bool:
-            app = self._build_app()
-            result: dict[str, Any] = app.acquire_token_by_device_flow(flow)
+            if self._pending_app is not None and self._pending_cache is not None:
+                app = self._pending_app
+                cache = self._pending_cache
+                self._pending_app = None
+                self._pending_cache = None
+            else:
+                app, cache = self._build_app()
+
+            result: _TokenResultDict = app.acquire_token_by_device_flow(flow)
             if "error" in result:
                 logger.warning(
                     "ms_graph_auth.device_flow_failed",
@@ -208,7 +287,7 @@ class MicrosoftGraphAuth:
                 )
                 return False
 
-            self._save_token_cache(cast(SerializableTokenCache, app.token_cache))
+            self._save_token_cache(cache)
             logger.info("ms_graph_auth.device_flow_succeeded")
             return True
 
@@ -222,26 +301,31 @@ class MicrosoftGraphAuth:
         loop = asyncio.get_running_loop()
 
         def _get_token() -> str | None:
-            app = self._build_app()
+            app, cache = self._build_app()
             accounts = app.get_accounts()
             if not accounts:
                 return None
 
-            result = app.acquire_token_silent(self.SCOPES, account=accounts[0])
+            result: _TokenResultDict = app.acquire_token_silent(self.SCOPES, account=accounts[0])
             if result and "access_token" in result:
-                self._save_token_cache(cast(SerializableTokenCache, app.token_cache))
+                self._save_token_cache(cache)
                 return str(result["access_token"])
 
             return None
 
         return await loop.run_in_executor(None, _get_token)
 
-    async def is_authenticated(self) -> bool:
-        """Return True if a cached account exists (token may still need silent refresh)."""
+    async def has_cached_account(self) -> bool:
+        """Return True if a cached account exists.
+
+        Note: a cached account does not guarantee a valid token — the token may
+        need a silent refresh, which can fail if the refresh token has expired.
+        Use ``get_access_token()`` when you need a confirmed valid token.
+        """
         loop = asyncio.get_running_loop()
 
         def _check() -> bool:
-            app = self._build_app()
+            app, _ = self._build_app()
             return len(app.get_accounts()) > 0
 
         return await loop.run_in_executor(None, _check)
