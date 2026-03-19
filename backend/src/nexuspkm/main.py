@@ -36,10 +36,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _vector_store = VectorStore(db_path=str(data_dir / "lancedb"), dimensions=embed_dim)
     try:
         _graph_store = await asyncio.to_thread(GraphStore, data_dir / "kuzu")
+        _knowledge_index = KnowledgeIndex(_vector_store, _graph_store, embedding_provider)
     except Exception:
+        if _graph_store is not None:
+            await asyncio.to_thread(_graph_store.close)
         await _vector_store.close()
         raise
-    _knowledge_index = KnowledgeIndex(_vector_store, _graph_store, embedding_provider)
     app.dependency_overrides[get_knowledge_index] = lambda: _knowledge_index
 
     log.info(

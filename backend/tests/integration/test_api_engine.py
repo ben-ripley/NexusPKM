@@ -100,6 +100,14 @@ def test_reindex_returns_completed(engine_client: TestClient) -> None:
     assert response.json() == {"status": "completed", "reindexed": 0}
 
 
+def test_reindex_full_flag_accepted(engine_client: TestClient) -> None:
+    # Stub returns the same response regardless of full flag until NXP-5x is implemented.
+    # This test ensures the flag is accepted and doesn't raise a validation error.
+    response = engine_client.post("/api/engine/reindex", json={"full": True})
+    assert response.status_code == 200
+    assert response.json() == {"status": "completed", "reindexed": 0}
+
+
 def test_get_knowledge_index_raises_503_by_default() -> None:
     """The sentinel dependency raises 503 when not overridden by lifespan."""
     with pytest.raises(HTTPException) as exc_info:

@@ -61,7 +61,7 @@ async def get_stats(
 ) -> EngineStats:
     try:
         raw = await index.stats()
-        return EngineStats(**raw)
+        return EngineStats.model_validate(raw)
     except Exception as exc:
         log.error("engine_stats_failed", error=str(exc))
         raise HTTPException(status_code=500, detail="Failed to retrieve engine stats") from exc
