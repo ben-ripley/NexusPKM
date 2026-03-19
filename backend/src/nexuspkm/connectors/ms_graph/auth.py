@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import os
 import re
+import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import ClassVar, TypedDict
@@ -191,21 +192,22 @@ class MicrosoftGraphAuth:
     def _save_token_cache(self, cache: SerializableTokenCache) -> None:
         """Encrypt the MSAL token cache and persist it to disk.
 
-        Written via a temp file + atomic rename with 0o600 permissions.
-        Uses ``os.write``/``os.close`` directly so the file descriptor is
-        always closed in a ``finally`` block, avoiding any fd leak.
+        Written via a uniquely-named temp file (``tempfile.mkstemp``) + atomic
+        rename with 0o600 permissions.  A unique name avoids the race where two
+        concurrent writes would clobber each other's data through a shared fixed
+        ``.tmp`` path.  Uses ``os.write``/``os.close`` directly so the file
+        descriptor is always closed in a ``finally`` block, avoiding any fd leak.
         The temp file is unlinked if the write or rename fails.
         """
         key = self._get_or_create_key()
         fernet = Fernet(key)
         encrypted = fernet.encrypt(cache.serialize().encode())
         self._token_dir.mkdir(parents=True, exist_ok=True)
-        tmp_file = self._cache_file.with_suffix(".tmp")
         write_succeeded = False
-        fd = os.open(tmp_file, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        fd, tmp_path_str = tempfile.mkstemp(dir=self._token_dir, suffix=".tmp")
+        tmp_file = Path(tmp_path_str)
         try:
-            # fchmod ensures correct permissions even if the file pre-existed with
-            # looser permissions (O_TRUNC does not update mode on existing files).
+            # fchmod ensures correct permissions regardless of process umask.
             os.fchmod(fd, 0o600)
             os.write(fd, encrypted)
             write_succeeded = True

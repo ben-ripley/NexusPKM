@@ -30,6 +30,13 @@ def token_dir(tmp_path: Path) -> Path:
     return d
 
 
+@pytest.fixture
+def no_ms_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Remove MS_TENANT_ID and MS_CLIENT_ID from the environment for the test."""
+    monkeypatch.delenv("MS_TENANT_ID", raising=False)
+    monkeypatch.delenv("MS_CLIENT_ID", raising=False)
+
+
 def _mock_build(mock_app: MagicMock) -> tuple[MagicMock, SerializableTokenCache]:
     """Return a (mock_app, real_cache) tuple for patching _build_app.
 
@@ -172,8 +179,7 @@ def test_save_token_cache_cleans_up_tmp_file_on_rename_failure(token_dir: Path) 
     ):
         auth._save_token_cache(cache)
 
-    tmp_file = token_dir / "ms_graph.tmp"
-    assert not tmp_file.exists()
+    assert list(token_dir.glob("*.tmp")) == []
 
 
 def test_save_token_cache_cleans_up_tmp_file_on_write_failure(token_dir: Path) -> None:
@@ -187,8 +193,7 @@ def test_save_token_cache_cleans_up_tmp_file_on_write_failure(token_dir: Path) -
     ):
         auth._save_token_cache(cache)
 
-    tmp_file = token_dir / "ms_graph.tmp"
-    assert not tmp_file.exists()
+    assert list(token_dir.glob("*.tmp")) == []
 
 
 # ---------------------------------------------------------------------------
@@ -196,34 +201,32 @@ def test_save_token_cache_cleans_up_tmp_file_on_write_failure(token_dir: Path) -
 # ---------------------------------------------------------------------------
 
 
-def test_build_app_raises_when_env_vars_missing(token_dir: Path) -> None:
+def test_build_app_raises_when_env_vars_missing(token_dir: Path, no_ms_env: None) -> None:
     """Raises ValueError when MS_TENANT_ID or MS_CLIENT_ID are not set."""
     auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+    with pytest.raises(ValueError, match="MS_TENANT_ID"):
         auth._build_app()
 
 
-def test_build_app_raises_when_client_id_missing(token_dir: Path) -> None:
+def test_build_app_raises_when_client_id_missing(
+    token_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Raises ValueError when MS_CLIENT_ID is missing (MS_TENANT_ID is present)."""
+    monkeypatch.setenv("MS_TENANT_ID", "tenant-123")
+    monkeypatch.delenv("MS_CLIENT_ID", raising=False)
     auth = MicrosoftGraphAuth(token_dir)
-    with (
-        patch.dict("os.environ", {"MS_TENANT_ID": "tenant-123"}, clear=True),
-        pytest.raises(ValueError, match="MS_CLIENT_ID"),
-    ):
+    with pytest.raises(ValueError, match="MS_CLIENT_ID"):
         auth._build_app()
 
 
-def test_build_app_raises_on_invalid_tenant_id_format(token_dir: Path) -> None:
+def test_build_app_raises_on_invalid_tenant_id_format(
+    token_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Raises ValueError when MS_TENANT_ID contains path-traversal characters."""
+    monkeypatch.setenv("MS_TENANT_ID", "../../etc/passwd")
+    monkeypatch.setenv("MS_CLIENT_ID", "client-id")
     auth = MicrosoftGraphAuth(token_dir)
-    with (
-        patch.dict(
-            "os.environ",
-            {"MS_TENANT_ID": "../../etc/passwd", "MS_CLIENT_ID": "client-id"},
-            clear=True,
-        ),
-        pytest.raises(ValueError, match="invalid format"),
-    ):
+    with pytest.raises(ValueError, match="invalid format"):
         auth._build_app()
 
 
@@ -277,10 +280,12 @@ async def test_authenticate_returns_false_on_silent_failure(token_dir: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_authenticate_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
+async def test_authenticate_raises_valueerror_when_env_vars_missing(
+    token_dir: Path, no_ms_env: None
+) -> None:
     """ValueError from missing env vars propagates through the executor in authenticate()."""
     auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+    with pytest.raises(ValueError, match="MS_TENANT_ID"):
         await auth.authenticate()
 
 
@@ -335,11 +340,11 @@ async def test_initiate_device_code_flow_raises_on_msal_error(token_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_initiate_device_code_flow_raises_valueerror_when_env_vars_missing(
-    token_dir: Path,
+    token_dir: Path, no_ms_env: None
 ) -> None:
     """ValueError from missing env vars propagates through executor in initiate_device_code_flow."""
     auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+    with pytest.raises(ValueError, match="MS_TENANT_ID"):
         await auth.initiate_device_code_flow()
 
 
@@ -434,10 +439,12 @@ async def test_get_access_token_returns_token_when_silent_succeeds(token_dir: Pa
 
 
 @pytest.mark.asyncio
-async def test_get_access_token_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
+async def test_get_access_token_raises_valueerror_when_env_vars_missing(
+    token_dir: Path, no_ms_env: None
+) -> None:
     """ValueError from missing env vars propagates through the executor in get_access_token()."""
     auth = MicrosoftGraphAuth(token_dir)
-    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+    with pytest.raises(ValueError, match="MS_TENANT_ID"):
         await auth.get_access_token()
 
 
@@ -466,6 +473,16 @@ async def test_has_cached_account_true_when_account_cached(token_dir: Path) -> N
         mock_app.get_accounts.return_value = [{"username": "user@example.com"}]
         mock_build.return_value = _mock_build(mock_app)
         assert await auth.has_cached_account() is True
+
+
+@pytest.mark.asyncio
+async def test_has_cached_account_raises_valueerror_when_env_vars_missing(
+    token_dir: Path, no_ms_env: None
+) -> None:
+    """ValueError from missing env vars propagates through the executor in has_cached_account()."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.has_cached_account()
 
 
 # ---------------------------------------------------------------------------
