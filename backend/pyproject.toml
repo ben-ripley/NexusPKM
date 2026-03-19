@@ -18,6 +18,8 @@ dependencies = [
     "llama-index-embeddings-bedrock>=0.4",
     "llama-index-embeddings-openai>=0.4",
     "llama-index-embeddings-ollama>=0.4",
+    "lancedb>=0.20",
+    "pyarrow>=14.0",
 ]
 
 [project.optional-dependencies]
@@ -55,4 +57,12 @@ strict = true
 
 [[tool.mypy.overrides]]
 module = "llama_index.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "lancedb.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pyarrow.*"
 ignore_missing_imports = true
