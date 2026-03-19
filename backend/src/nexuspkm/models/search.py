@@ -8,9 +8,11 @@ Spec: F-007 FR-1
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import AwareDatetime, BaseModel, Field
 
-from nexuspkm.models.document import SourceType
+from nexuspkm.models.document import ScoreFloat, SourceType
 from nexuspkm.models.entity import EntitySummary, EntityType
 
 
@@ -25,7 +27,7 @@ class SearchFilters(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     filters: SearchFilters | None = None
-    top_k: int = Field(default=20, ge=1)
+    top_k: Annotated[int, Field(ge=1, le=200)] = 20
     include_graph_expansion: bool = True
 
 
@@ -58,15 +60,15 @@ class SearchResult(BaseModel):
     excerpt: str
     source_type: SourceType
     source_id: str
-    relevance_score: float
+    relevance_score: ScoreFloat
     created_at: AwareDatetime
     url: str | None = None
-    matched_entities: list[EntitySummary] = []
-    related_documents: list[str] = []
+    matched_entities: list[EntitySummary] = Field(default_factory=list)
+    related_documents: list[str] = Field(default_factory=list)
 
 
 class SearchResponse(BaseModel):
     results: list[SearchResult]
     total_count: int
     facets: SearchFacets
-    query_entities: list[str] = []
+    query_entities: list[str] = Field(default_factory=list)

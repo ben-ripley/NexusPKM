@@ -252,6 +252,34 @@ class TestSourceAttribution:
         )
         assert sa.participants == []
 
+    def test_relevance_score_above_one_raises(self) -> None:
+        from nexuspkm.models.document import SourceAttribution
+
+        with pytest.raises(ValidationError):
+            SourceAttribution(
+                document_id="doc-1",
+                title="Note",
+                source_type="obsidian_note",
+                source_id="note-1",
+                excerpt="text",
+                relevance_score=1.1,
+                created_at=NOW,
+            )
+
+    def test_relevance_score_below_zero_raises(self) -> None:
+        from nexuspkm.models.document import SourceAttribution
+
+        with pytest.raises(ValidationError):
+            SourceAttribution(
+                document_id="doc-1",
+                title="Note",
+                source_type="obsidian_note",
+                source_id="note-1",
+                excerpt="text",
+                relevance_score=-0.1,
+                created_at=NOW,
+            )
+
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.document import SourceAttribution
 
@@ -317,6 +345,19 @@ class TestEntityResult:
         )
         assert er.name == "Alice"
 
+    def test_entity_type_is_enum(self) -> None:
+        from nexuspkm.models.document import EntityResult
+        from nexuspkm.models.entity import EntityType
+
+        er = EntityResult(entity_id="e-1", entity_type="person", name="Alice", context="ctx")
+        assert er.entity_type == EntityType.PERSON
+
+    def test_invalid_entity_type_raises(self) -> None:
+        from nexuspkm.models.document import EntityResult
+
+        with pytest.raises(ValidationError):
+            EntityResult(entity_id="e-1", entity_type="robot", name="R2D2", context="ctx")
+
 
 class TestRelResult:
     def test_valid_construct(self) -> None:
@@ -329,6 +370,29 @@ class TestRelResult:
             context="attended the meeting",
         )
         assert rr.relationship_type == "ATTENDED"
+
+    def test_relationship_type_is_enum(self) -> None:
+        from nexuspkm.models.document import RelResult
+        from nexuspkm.models.relationship import RelationshipType
+
+        rr = RelResult(
+            source_entity="Alice",
+            relationship_type="ATTENDED",
+            target_entity="Meeting",
+            context="ctx",
+        )
+        assert rr.relationship_type == RelationshipType.ATTENDED
+
+    def test_invalid_relationship_type_raises(self) -> None:
+        from nexuspkm.models.document import RelResult
+
+        with pytest.raises(ValidationError):
+            RelResult(
+                source_entity="Alice",
+                relationship_type="INVENTED_THING",
+                target_entity="X",
+                context="ctx",
+            )
 
 
 class TestRetrievalResult:
@@ -463,6 +527,31 @@ class TestExtractedRelationship:
             context="Alice attended the sprint planning",
         )
         assert er.source_entity == "Alice"
+
+    def test_relationship_type_is_enum(self) -> None:
+        from nexuspkm.models.entity import ExtractedRelationship
+        from nexuspkm.models.relationship import RelationshipType
+
+        er = ExtractedRelationship(
+            source_entity="Alice",
+            relationship_type="WORKS_ON",
+            target_entity="NexusPKM",
+            confidence=0.8,
+            context="ctx",
+        )
+        assert er.relationship_type == RelationshipType.WORKS_ON
+
+    def test_invalid_relationship_type_raises(self) -> None:
+        from nexuspkm.models.entity import ExtractedRelationship
+
+        with pytest.raises(ValidationError):
+            ExtractedRelationship(
+                source_entity="Alice",
+                relationship_type="NOT_A_TYPE",
+                target_entity="X",
+                confidence=0.5,
+                context="ctx",
+            )
 
     def test_confidence_out_of_range_raises(self) -> None:
         from nexuspkm.models.entity import ExtractedRelationship
@@ -611,6 +700,18 @@ class TestSearchRequest:
 
         with pytest.raises(ValidationError):
             SearchRequest(query="q", top_k=-1)
+
+    def test_top_k_above_max_raises(self) -> None:
+        from nexuspkm.models.search import SearchRequest
+
+        with pytest.raises(ValidationError):
+            SearchRequest(query="q", top_k=201)
+
+    def test_top_k_at_max_valid(self) -> None:
+        from nexuspkm.models.search import SearchRequest
+
+        req = SearchRequest(query="q", top_k=200)
+        assert req.top_k == 200
 
     def test_json_roundtrip(self) -> None:
         from nexuspkm.models.search import SearchRequest
@@ -824,49 +925,53 @@ class TestChatSession:
 
 class TestModelsPackageExports:
     def test_document_exports(self) -> None:
+        from pydantic import BaseModel
+
         from nexuspkm.models import (
             ChunkResult,
             Document,
             DocumentMetadata,
             EntityResult,
-            ProcessingStatus,
             RelResult,
             RetrievalResult,
             SourceAttribution,
-            SourceType,
         )
 
-        assert Document is not None
-        assert DocumentMetadata is not None
-        assert SourceType is not None
-        assert ProcessingStatus is not None
-        assert ChunkResult is not None
-        assert EntityResult is not None
-        assert RelResult is not None
-        assert RetrievalResult is not None
-        assert SourceAttribution is not None
+        for cls in (
+            Document,
+            DocumentMetadata,
+            ChunkResult,
+            EntityResult,
+            RelResult,
+            RetrievalResult,
+            SourceAttribution,
+        ):
+            assert issubclass(cls, BaseModel)
+
+    def test_enum_exports(self) -> None:
+        from enum import StrEnum
+
+        from nexuspkm.models import ProcessingStatus, RelationshipType, SourceType
+
+        for cls in (SourceType, ProcessingStatus, RelationshipType):
+            assert issubclass(cls, StrEnum)
 
     def test_entity_exports(self) -> None:
+        from pydantic import BaseModel
+
         from nexuspkm.models import (
             EntitySummary,
-            EntityType,
             ExtractedEntity,
             ExtractedRelationship,
             ExtractionResult,
         )
 
-        assert EntityType is not None
-        assert EntitySummary is not None
-        assert ExtractedEntity is not None
-        assert ExtractedRelationship is not None
-        assert ExtractionResult is not None
-
-    def test_relationship_exports(self) -> None:
-        from nexuspkm.models import RelationshipType
-
-        assert RelationshipType is not None
+        for cls in (EntitySummary, ExtractedEntity, ExtractedRelationship, ExtractionResult):
+            assert issubclass(cls, BaseModel)
 
     def test_search_exports(self) -> None:
+        from pydantic import BaseModel
+
         from nexuspkm.models import (
             DateBucket,
             EntityCount,
@@ -878,17 +983,27 @@ class TestModelsPackageExports:
             TagCount,
         )
 
-        assert SearchFilters is not None
-        assert SearchRequest is not None
-        assert SearchResult is not None
-        assert SearchFacets is not None
-        assert SearchResponse is not None
-        assert DateBucket is not None
-        assert EntityCount is not None
-        assert TagCount is not None
+        for cls in (
+            SearchFilters,
+            SearchRequest,
+            SearchResult,
+            SearchFacets,
+            SearchResponse,
+            DateBucket,
+            EntityCount,
+            TagCount,
+        ):
+            assert issubclass(cls, BaseModel)
 
     def test_chat_exports(self) -> None:
+        from pydantic import BaseModel
+
         from nexuspkm.models import ChatMessage, ChatSession
 
-        assert ChatMessage is not None
-        assert ChatSession is not None
+        for cls in (ChatMessage, ChatSession):
+            assert issubclass(cls, BaseModel)
+
+    def test_score_float_exported(self) -> None:
+        from nexuspkm.models import ScoreFloat
+
+        assert ScoreFloat is not None

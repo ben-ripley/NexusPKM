@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel
+from pydantic import AwareDatetime, BaseModel, Field
 
 from nexuspkm.models.document import SourceAttribution
 
@@ -20,13 +20,13 @@ class ChatMessage(BaseModel):
     id: str
     role: Literal["user", "assistant"]
     content: str
-    sources: list[SourceAttribution] = []
+    sources: list[SourceAttribution] = Field(default_factory=list)
     timestamp: AwareDatetime
 
 
 class ChatSession(BaseModel):
     id: str
     title: str
-    messages: list[ChatMessage] = []
+    messages: list[ChatMessage] = Field(default_factory=list)
     created_at: AwareDatetime
     updated_at: AwareDatetime

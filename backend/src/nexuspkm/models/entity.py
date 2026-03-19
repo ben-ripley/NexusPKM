@@ -13,6 +13,8 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from nexuspkm.models.relationship import RelationshipType
+
 ConfidenceFloat = Annotated[float, Field(ge=0.0, le=1.0)]
 
 
@@ -33,14 +35,14 @@ class EntitySummary(BaseModel):
 class ExtractedEntity(BaseModel):
     type: EntityType
     name: str
-    properties: dict[str, object] = {}
+    properties: dict[str, object] = Field(default_factory=dict)
     confidence: ConfidenceFloat
     source_span: str
 
 
 class ExtractedRelationship(BaseModel):
     source_entity: str
-    relationship_type: str
+    relationship_type: RelationshipType
     target_entity: str
     confidence: ConfidenceFloat
     context: str

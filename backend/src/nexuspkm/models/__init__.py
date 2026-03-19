@@ -13,6 +13,7 @@ from nexuspkm.models.document import (
     ProcessingStatus,
     RelResult,
     RetrievalResult,
+    ScoreFloat,
     SourceAttribution,
     SourceType,
 )
@@ -47,14 +48,15 @@ __all__ = [
     "ProcessingStatus",
     "RelResult",
     "RetrievalResult",
+    "ScoreFloat",
     "SourceAttribution",
     "SourceType",
     # entity
     "EntitySummary",
     "EntityType",
-    "ExtractionResult",
     "ExtractedEntity",
     "ExtractedRelationship",
+    "ExtractionResult",
     # relationship
     "RelationshipType",
     # search
