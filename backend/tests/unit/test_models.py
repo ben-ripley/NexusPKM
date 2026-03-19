@@ -174,6 +174,12 @@ class TestDocumentMetadata:
                 {**self._VALID, "created_at": later, "updated_at": earlier}
             )
 
+    def test_updated_at_equal_to_created_at_valid(self) -> None:
+        from nexuspkm.models.document import DocumentMetadata
+
+        meta = DocumentMetadata.model_validate(self._VALID)
+        assert meta.updated_at == meta.created_at
+
 
 class TestDocument:
     def _meta(self) -> object:
@@ -1291,16 +1297,18 @@ class TestModelsPackageExports:
                 }
             )
         with pytest.raises(ValidationError):
-            Document(
-                id="d-1",
-                content="text",
-                metadata=DocumentMetadata(
-                    source_type=SourceType.OBSIDIAN_NOTE,
-                    source_id="n-1",
-                    title="Note",
-                    created_at=NOW,
-                    updated_at=NOW,
-                    synced_at=NOW,
-                ),
-                unknown_field="oops",  # type: ignore[call-arg]
+            Document.model_validate(
+                {
+                    "id": "d-1",
+                    "content": "text",
+                    "metadata": DocumentMetadata(
+                        source_type=SourceType.OBSIDIAN_NOTE,
+                        source_id="n-1",
+                        title="Note",
+                        created_at=NOW,
+                        updated_at=NOW,
+                        synced_at=NOW,
+                    ),
+                    "unknown_field": "oops",
+                }
             )

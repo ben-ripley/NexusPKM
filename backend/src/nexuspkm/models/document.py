@@ -69,6 +69,8 @@ class Document(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     id: str = Field(min_length=1)
+    # Connectors must supply at least a title or stub for empty-body sources
+    # (e.g. calendar events with no body) before producing a Document.
     content: str = Field(min_length=1)
     metadata: DocumentMetadata
     chunks: list[str] = Field(default_factory=list)
