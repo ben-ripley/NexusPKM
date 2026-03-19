@@ -34,7 +34,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # VectorStore.__init__ is lazy (no disk I/O); GraphStore.__init__ opens the
     # Kuzu database and runs schema DDL, so it must be offloaded to a thread.
     _vector_store = VectorStore(db_path=str(data_dir / "lancedb"), dimensions=embed_dim)
-    _graph_store = await asyncio.to_thread(GraphStore, data_dir / "kuzu")
+    try:
+        _graph_store = await asyncio.to_thread(GraphStore, data_dir / "kuzu")
+    except Exception:
+        await _vector_store.close()
+        raise
     _knowledge_index = KnowledgeIndex(_vector_store, _graph_store, embedding_provider)
     app.dependency_overrides[get_knowledge_index] = lambda: _knowledge_index
 

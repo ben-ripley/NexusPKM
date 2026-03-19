@@ -10,9 +10,11 @@ from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from nexuspkm.api.engine import get_knowledge_index
+from nexuspkm.engine.index import KnowledgeIndex
 from nexuspkm.main import app
 from nexuspkm.models.document import Document, ProcessingStatus
 
@@ -38,7 +40,7 @@ _INDEXED_DOC = Document.model_validate(
 
 @pytest.fixture
 def mock_index() -> MagicMock:
-    index = MagicMock()
+    index = MagicMock(spec=KnowledgeIndex)
     index.insert = AsyncMock(return_value=_INDEXED_DOC)
     index.stats = AsyncMock(
         return_value={"documents": 5, "chunks": 20, "entities": 10, "relationships": 8}
@@ -63,7 +65,7 @@ def test_ingest_valid_document(engine_client: TestClient, mock_index: MagicMock)
     response = engine_client.post("/api/engine/ingest", json=_VALID_DOC_PAYLOAD)
     assert response.status_code == 200
     data = response.json()
-    assert data["processing_status"] == ProcessingStatus.INDEXED
+    assert data["processing_status"] == ProcessingStatus.INDEXED.value
     mock_index.insert.assert_awaited_once()
 
 
@@ -98,8 +100,21 @@ def test_reindex_returns_completed(engine_client: TestClient) -> None:
     assert response.json() == {"status": "completed", "reindexed": 0}
 
 
+def test_get_knowledge_index_raises_503_by_default() -> None:
+    """The sentinel dependency raises 503 when not overridden by lifespan."""
+    with pytest.raises(HTTPException) as exc_info:
+        get_knowledge_index()
+    assert exc_info.value.status_code == 503
+
+
 def test_engine_unavailable_returns_503() -> None:
-    # No dependency override — get_knowledge_index raises 503 by default
-    client = TestClient(app)
-    response = client.get("/api/engine/stats")
-    assert response.status_code == 503
+    # Explicitly clear any override to guarantee the sentinel is active,
+    # then make a GET and a POST request to verify both methods propagate 503.
+    saved = app.dependency_overrides.pop(get_knowledge_index, None)
+    try:
+        client = TestClient(app)
+        assert client.get("/api/engine/stats").status_code == 503
+        assert client.post("/api/engine/ingest", json=_VALID_DOC_PAYLOAD).status_code == 503
+    finally:
+        if saved is not None:
+            app.dependency_overrides[get_knowledge_index] = saved
