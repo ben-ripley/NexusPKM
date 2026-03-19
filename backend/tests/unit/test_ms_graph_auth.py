@@ -46,8 +46,8 @@ def _make_auth_flow_context(mock_app: MagicMock, flow_dict: dict[str, object]) -
         user_code=str(flow_dict.get("user_code", "X")),
         device_code=str(flow_dict.get("device_code", "d")),
         verification_uri=str(flow_dict.get("verification_uri", "https://example.com")),
-        expires_in=int(flow_dict.get("expires_in", 900)),  # type: ignore[arg-type]
-        interval=int(flow_dict.get("interval", 5)),  # type: ignore[arg-type]
+        expires_in=int(str(flow_dict.get("expires_in", 900))),
+        interval=int(str(flow_dict.get("interval", 5))),
         message=str(flow_dict.get("message", "msg")),
     )
     return AuthFlowContext(flow=flow, app=mock_app, cache=SerializableTokenCache())
@@ -141,6 +141,15 @@ def test_save_and_load_token_cache_roundtrip(token_dir: Path) -> None:
     assert loaded.serialize() == cache.serialize()
 
 
+def test_load_token_cache_returns_empty_on_corrupted_file(token_dir: Path) -> None:
+    """Loading a cache file that fails Fernet decryption returns an empty cache."""
+    auth = MicrosoftGraphAuth(token_dir)
+    auth._get_or_create_key()  # ensure key file exists
+    (token_dir / "ms_graph.json").write_bytes(b"not-valid-fernet-data")
+    cache = auth._load_token_cache()
+    assert isinstance(cache, SerializableTokenCache)
+
+
 @_SKIP_WINDOWS_PERMS
 def test_cache_file_created_with_restricted_permissions(token_dir: Path) -> None:
     """ms_graph.json is created with 0o600 permissions (owner read/write only)."""
@@ -222,17 +231,21 @@ async def test_authenticate_returns_false_when_no_cached_accounts(token_dir: Pat
 
 @pytest.mark.asyncio
 async def test_authenticate_returns_true_on_silent_success(token_dir: Path) -> None:
-    """Returns True when acquire_token_silent succeeds."""
+    """Returns True when acquire_token_silent succeeds and saves cache when state changed."""
     auth = MicrosoftGraphAuth(token_dir)
-    with patch.object(auth, "_build_app") as mock_build, patch.object(auth, "_save_token_cache"):
+    with (
+        patch.object(auth, "_build_app") as mock_build,
+        patch.object(auth, "_save_token_cache") as mock_save,
+    ):
         mock_app = MagicMock()
         mock_app.get_accounts.return_value = [{"username": "user@example.com"}]
         mock_app.acquire_token_silent.return_value = {"access_token": "tok123"}
         app, cache = _mock_build(mock_app)
-        cache.has_state_changed = True  # type: ignore[assignment]
+        cache.has_state_changed = True
         mock_build.return_value = (app, cache)
         result = await auth.authenticate()
     assert result is True
+    mock_save.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -388,17 +401,21 @@ async def test_get_access_token_returns_none_when_no_accounts(token_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_get_access_token_returns_token_when_silent_succeeds(token_dir: Path) -> None:
-    """Returns the access_token string when silent acquisition succeeds."""
+    """Returns the access_token string when silent acquisition succeeds and saves cache."""
     auth = MicrosoftGraphAuth(token_dir)
-    with patch.object(auth, "_build_app") as mock_build, patch.object(auth, "_save_token_cache"):
+    with (
+        patch.object(auth, "_build_app") as mock_build,
+        patch.object(auth, "_save_token_cache") as mock_save,
+    ):
         mock_app = MagicMock()
         mock_app.get_accounts.return_value = [{"username": "user@example.com"}]
         mock_app.acquire_token_silent.return_value = {"access_token": "tok999"}
         app, cache = _mock_build(mock_app)
-        cache.has_state_changed = True  # type: ignore[assignment]
+        cache.has_state_changed = True
         mock_build.return_value = (app, cache)
         result = await auth.get_access_token()
     assert result == "tok999"
+    mock_save.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -461,6 +478,10 @@ async def test_poll_for_token_valueerror_propagates_when_no_context_and_env_miss
 
 
 def test_public_types_are_exported() -> None:
-    """AuthFlowContext and DeviceFlowDict are accessible from the public package."""
-    from nexuspkm.connectors.ms_graph import AuthFlowContext as _AFC  # noqa: F401
-    from nexuspkm.connectors.ms_graph import DeviceFlowDict as _DFD  # noqa: F401
+    """AuthFlowContext and DeviceFlowDict are listed in the package's __all__."""
+    from nexuspkm.connectors.ms_graph import __all__ as public_api
+
+    assert "AuthFlowContext" in public_api
+    assert "DeviceFlowDict" in public_api
+    assert "MicrosoftGraphAuth" in public_api
+    assert "DeviceCodeInfo" in public_api

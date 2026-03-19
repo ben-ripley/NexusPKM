@@ -18,6 +18,7 @@ import asyncio
 import contextlib
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TypedDict
 
@@ -201,6 +202,9 @@ class MicrosoftGraphAuth:
         tmp_file = self._cache_file.with_suffix(".tmp")
         fd = os.open(tmp_file, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
         try:
+            # fchmod ensures correct permissions even if the file pre-existed with
+            # looser permissions (O_TRUNC does not update mode on existing files).
+            os.fchmod(fd, 0o600)
             os.write(fd, encrypted)
         finally:
             os.close(fd)
@@ -248,6 +252,8 @@ class MicrosoftGraphAuth:
     async def authenticate(self) -> bool:
         """Attempt a silent token acquisition using cached credentials.
 
+        Delegates to ``get_access_token`` and logs the outcome.
+
         Returns:
             True if a valid access token was obtained silently.
             False if re-authentication via device code flow is required.
@@ -255,27 +261,12 @@ class MicrosoftGraphAuth:
         Raises:
             ValueError: if MS_TENANT_ID or MS_CLIENT_ID env vars are not set.
         """
-        loop = asyncio.get_running_loop()
-
-        def _silent_acquire() -> bool:
-            app, cache = self._build_app()
-            accounts = app.get_accounts()
-            if not accounts:
-                return False
-
-            result: _TokenResultDict | None = app.acquire_token_silent(
-                self.SCOPES, account=accounts[0]
-            )
-            if result and "access_token" in result:
-                if cache.has_state_changed:
-                    self._save_token_cache(cache)
-                logger.info("ms_graph_auth.silent_token_acquired")
-                return True
-
-            logger.info("ms_graph_auth.silent_token_failed_reauth_required")
-            return False
-
-        return await loop.run_in_executor(None, _silent_acquire)
+        token = await self.get_access_token()
+        if token is not None:
+            logger.info("ms_graph_auth.silent_token_acquired")
+            return True
+        logger.info("ms_graph_auth.silent_token_failed_reauth_required")
+        return False
 
     async def initiate_device_code_flow(self) -> tuple[DeviceCodeInfo, AuthFlowContext]:
         """Start a device code flow.
@@ -357,7 +348,10 @@ class MicrosoftGraphAuth:
             logger.info("ms_graph_auth.device_flow_succeeded")
             return True
 
-        return await loop.run_in_executor(None, _blocking_poll)
+        # Use a dedicated thread so the long-polling call (up to ``expires_in``
+        # seconds, typically 15 min) does not tie up the shared default executor.
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            return await loop.run_in_executor(pool, _blocking_poll)
 
     async def get_access_token(self) -> str | None:
         """Return a current valid access token, or None if unavailable.
