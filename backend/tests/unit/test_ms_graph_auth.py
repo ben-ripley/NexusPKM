@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import stat
 import sys
 from pathlib import Path
@@ -370,3 +371,74 @@ def test_build_app_raises_when_client_id_missing(token_dir: Path) -> None:
         pytest.raises(ValueError, match="MS_CLIENT_ID"),
     ):
         auth._build_app()
+
+
+# ---------------------------------------------------------------------------
+# ValueError propagation through run_in_executor
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_authenticate_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
+    """ValueError from missing env vars propagates through the executor in authenticate()."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.authenticate()
+
+
+@pytest.mark.asyncio
+async def test_initiate_device_code_flow_raises_valueerror_when_env_vars_missing(
+    token_dir: Path,
+) -> None:
+    """ValueError from missing env vars propagates through executor in initiate_device_code_flow."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.initiate_device_code_flow()
+
+
+@pytest.mark.asyncio
+async def test_get_access_token_raises_valueerror_when_env_vars_missing(token_dir: Path) -> None:
+    """ValueError from missing env vars propagates through the executor in get_access_token()."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        await auth.get_access_token()
+
+
+# ---------------------------------------------------------------------------
+# _get_or_create_key TOCTOU concurrent-create path
+# ---------------------------------------------------------------------------
+
+
+def test_get_or_create_key_handles_concurrent_creation(token_dir: Path) -> None:
+    """FileExistsError from O_EXCL (concurrent create) falls back to reading the winner's key."""
+    from cryptography.fernet import Fernet
+
+    auth = MicrosoftGraphAuth(token_dir)
+
+    # Write a valid key as if a concurrent caller won the race.
+    winner_key = Fernet.generate_key()
+    key_file = token_dir / "token.key"
+    key_file.write_bytes(winner_key)
+
+    # Simulate O_EXCL raising FileExistsError on our attempt to create.
+    real_os_open = os.open
+
+    def raise_file_exists(path: object, flags: int, mode: int = 0o666) -> int:
+        if flags & os.O_EXCL:
+            raise FileExistsError
+        return real_os_open(path, flags, mode)  # type: ignore[arg-type]
+
+    with patch("nexuspkm.connectors.ms_graph.auth.os.open", side_effect=raise_file_exists):
+        key = auth._get_or_create_key()
+
+    assert key == winner_key
+
+
+# ---------------------------------------------------------------------------
+# DeviceFlowDict is a public type
+# ---------------------------------------------------------------------------
+
+
+def test_device_flow_dict_is_exported() -> None:
+    """DeviceFlowDict is accessible from the public package."""
+    from nexuspkm.connectors.ms_graph import DeviceFlowDict as _DFD  # noqa: F401
