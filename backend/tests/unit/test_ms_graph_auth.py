@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -49,6 +50,15 @@ def test_get_or_create_key_loads_existing_key(token_dir: Path) -> None:
     assert key1 == key2
 
 
+def test_key_file_created_with_restricted_permissions(token_dir: Path) -> None:
+    """token.key is created with 0o600 permissions (owner read/write only)."""
+    auth = MicrosoftGraphAuth(token_dir)
+    auth._get_or_create_key()
+    key_file = token_dir / "token.key"
+    mode = stat.S_IMODE(key_file.stat().st_mode)
+    assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+
 # ---------------------------------------------------------------------------
 # Token cache persistence
 # ---------------------------------------------------------------------------
@@ -58,7 +68,6 @@ def test_load_token_cache_returns_empty_when_no_file(token_dir: Path) -> None:
     """Loading cache when no file exists returns an empty cache without error."""
     auth = MicrosoftGraphAuth(token_dir)
     cache = auth._load_token_cache()
-    # An empty cache has no accounts
     from msal import SerializableTokenCache
 
     assert isinstance(cache, SerializableTokenCache)
@@ -82,6 +91,17 @@ def test_save_and_load_token_cache_roundtrip(token_dir: Path) -> None:
 
     loaded = auth._load_token_cache()
     assert loaded.serialize() == cache.serialize()
+
+
+def test_cache_file_created_with_restricted_permissions(token_dir: Path) -> None:
+    """ms_graph.json is created with 0o600 permissions (owner read/write only)."""
+    from msal import SerializableTokenCache
+
+    auth = MicrosoftGraphAuth(token_dir)
+    auth._save_token_cache(SerializableTokenCache())
+    cache_file = token_dir / "ms_graph.json"
+    mode = stat.S_IMODE(cache_file.stat().st_mode)
+    assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
 
 
 # ---------------------------------------------------------------------------
@@ -132,7 +152,8 @@ async def test_authenticate_returns_false_on_silent_failure(token_dir: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_initiate_device_code_flow_returns_device_code_info(token_dir: Path) -> None:
+@pytest.mark.asyncio
+async def test_initiate_device_code_flow_returns_device_code_info(token_dir: Path) -> None:
     """Returns a DeviceCodeInfo with human-readable fields and the raw flow dict."""
     auth = MicrosoftGraphAuth(token_dir)
     flow_dict = {
@@ -146,7 +167,7 @@ def test_initiate_device_code_flow_returns_device_code_info(token_dir: Path) -> 
         mock_app.initiate_device_flow.return_value = flow_dict
         mock_build.return_value = mock_app
 
-        info, raw_flow = auth.initiate_device_code_flow()
+        info, raw_flow = await auth.initiate_device_code_flow()
 
     assert isinstance(info, DeviceCodeInfo)
     assert info.user_code == "ABCD1234"
@@ -206,18 +227,20 @@ async def test_poll_for_token_returns_false_on_error(token_dir: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_access_token_returns_none_when_no_accounts(token_dir: Path) -> None:
+@pytest.mark.asyncio
+async def test_get_access_token_returns_none_when_no_accounts(token_dir: Path) -> None:
     """Returns None when cache has no accounts."""
     auth = MicrosoftGraphAuth(token_dir)
     with patch.object(auth, "_build_app") as mock_build:
         mock_app = MagicMock()
         mock_app.get_accounts.return_value = []
         mock_build.return_value = mock_app
-        result = auth.get_access_token()
+        result = await auth.get_access_token()
     assert result is None
 
 
-def test_get_access_token_returns_token_when_silent_succeeds(token_dir: Path) -> None:
+@pytest.mark.asyncio
+async def test_get_access_token_returns_token_when_silent_succeeds(token_dir: Path) -> None:
     """Returns the access_token string when silent acquisition succeeds."""
     auth = MicrosoftGraphAuth(token_dir)
     with patch.object(auth, "_build_app") as mock_build, patch.object(auth, "_save_token_cache"):
@@ -225,7 +248,7 @@ def test_get_access_token_returns_token_when_silent_succeeds(token_dir: Path) ->
         mock_app.get_accounts.return_value = [{"username": "user@example.com"}]
         mock_app.acquire_token_silent.return_value = {"access_token": "tok999"}
         mock_build.return_value = mock_app
-        result = auth.get_access_token()
+        result = await auth.get_access_token()
     assert result == "tok999"
 
 
@@ -234,24 +257,26 @@ def test_get_access_token_returns_token_when_silent_succeeds(token_dir: Path) ->
 # ---------------------------------------------------------------------------
 
 
-def test_is_authenticated_false_when_no_accounts(token_dir: Path) -> None:
+@pytest.mark.asyncio
+async def test_is_authenticated_false_when_no_accounts(token_dir: Path) -> None:
     """Returns False when app cache has no accounts."""
     auth = MicrosoftGraphAuth(token_dir)
     with patch.object(auth, "_build_app") as mock_build:
         mock_app = MagicMock()
         mock_app.get_accounts.return_value = []
         mock_build.return_value = mock_app
-        assert auth.is_authenticated() is False
+        assert await auth.is_authenticated() is False
 
 
-def test_is_authenticated_true_when_account_cached(token_dir: Path) -> None:
+@pytest.mark.asyncio
+async def test_is_authenticated_true_when_account_cached(token_dir: Path) -> None:
     """Returns True when at least one account is in the cache."""
     auth = MicrosoftGraphAuth(token_dir)
     with patch.object(auth, "_build_app") as mock_build:
         mock_app = MagicMock()
         mock_app.get_accounts.return_value = [{"username": "user@example.com"}]
         mock_build.return_value = mock_app
-        assert auth.is_authenticated() is True
+        assert await auth.is_authenticated() is True
 
 
 # ---------------------------------------------------------------------------
@@ -263,4 +288,14 @@ def test_build_app_raises_when_env_vars_missing(token_dir: Path) -> None:
     """Raises ValueError when MS_TENANT_ID or MS_CLIENT_ID are not set."""
     auth = MicrosoftGraphAuth(token_dir)
     with patch.dict("os.environ", {}, clear=True), pytest.raises(ValueError, match="MS_TENANT_ID"):
+        auth._build_app()
+
+
+def test_build_app_raises_when_client_id_missing(token_dir: Path) -> None:
+    """Raises ValueError when MS_CLIENT_ID is missing (MS_TENANT_ID is present)."""
+    auth = MicrosoftGraphAuth(token_dir)
+    with (
+        patch.dict("os.environ", {"MS_TENANT_ID": "tenant-123"}, clear=True),
+        pytest.raises(ValueError, match="MS_CLIENT_ID"),
+    ):
         auth._build_app()
