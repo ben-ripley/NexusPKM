@@ -8,12 +8,13 @@ Spec: F-002 FR-3
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 from typing import Any
 
 import pyarrow as pa
 import structlog
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from nexuspkm.models.document import ChunkResult, SourceType
 
@@ -30,8 +31,18 @@ def _escape_sql_string(value: str) -> str:
     """Escape a string value for safe interpolation in a SQL filter expression.
 
     Replaces each single quote with two single quotes (standard SQL escaping).
+    LanceDB's where() only accepts plain strings — parameterised queries are
+    not supported by the API — so this is the correct mitigation.
     """
     return value.replace("'", "''")
+
+
+def _dt_to_sql(dt: datetime.datetime) -> str:
+    """Format a datetime as a DuckDB TIMESTAMP literal string."""
+    # Normalise to UTC so the literal is always unambiguous.
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(datetime.UTC).replace(tzinfo=None)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 class VectorChunk(BaseModel):
@@ -90,24 +101,35 @@ class VectorStore:
         self._dimensions = dimensions
         self._conn: Any = _conn
         self._table: Any = None
+        self._open_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def _open(self) -> None:
-        """Connect to (or create) the LanceDB database and open the table."""
-        if self._conn is None:
-            import lancedb
+        """Connect to (or create) the LanceDB database and open the table.
 
-            self._conn = await lancedb.connect_async(self._db_path)
+        Protected by an asyncio.Lock so concurrent callers cannot race to
+        create the table simultaneously.
+        """
+        async with self._open_lock:
+            # Re-check inside the lock in case another coroutine opened it
+            # while we were waiting.
+            if self._table is not None:
+                return
 
-        schema = self._build_schema()
-        existing = await self._conn.list_tables()
-        if TABLE_NAME in existing:
-            self._table = await self._conn.open_table(TABLE_NAME)
-        else:
-            self._table = await self._conn.create_table(TABLE_NAME, schema=schema)
+            if self._conn is None:
+                import lancedb
+
+                self._conn = await lancedb.connect_async(self._db_path)
+
+            schema = self._build_schema()
+            existing = await self._conn.list_tables()
+            if TABLE_NAME in existing:
+                self._table = await self._conn.open_table(TABLE_NAME)
+            else:
+                self._table = await self._conn.create_table(TABLE_NAME, schema=schema)
 
         logger.info("vector_store.opened", db_path=self._db_path, dimensions=self._dimensions)
 
@@ -161,7 +183,7 @@ class VectorStore:
     async def search(
         self,
         vector: list[float],
-        top_k: int = 10,
+        top_k: int = Field(default=10, gt=0),
         filters: SearchFilters | None = None,
     ) -> list[ChunkResult]:
         """Return the *top_k* most similar chunks to *vector*.
@@ -169,6 +191,9 @@ class VectorStore:
         Optionally filters by source_type and/or date range.
         Score is computed as ``1.0 - cosine_distance``.
         """
+        if top_k <= 0:
+            raise ValueError(f"top_k must be a positive integer, got {top_k}")
+
         if self._table is None:
             await self._open()
 
@@ -204,8 +229,8 @@ class VectorStore:
                 pa.field("source_type", pa.string()),
                 pa.field("source_id", pa.string()),
                 pa.field("title", pa.string()),
-                pa.field("created_at", pa.string()),
-                pa.field("updated_at", pa.string()),
+                pa.field("created_at", pa.timestamp("us", tz="UTC")),
+                pa.field("updated_at", pa.timestamp("us", tz="UTC")),
             ]
         )
 
@@ -220,8 +245,12 @@ class VectorStore:
                 "source_type": [c.source_type.value for c in chunks],
                 "source_id": [c.source_id for c in chunks],
                 "title": [c.title for c in chunks],
-                "created_at": [c.created_at.isoformat() for c in chunks],
-                "updated_at": [c.updated_at.isoformat() for c in chunks],
+                "created_at": pa.array(
+                    [c.created_at for c in chunks], type=pa.timestamp("us", tz="UTC")
+                ),
+                "updated_at": pa.array(
+                    [c.updated_at for c in chunks], type=pa.timestamp("us", tz="UTC")
+                ),
             }
         )
 
@@ -238,13 +267,13 @@ class VectorStore:
 
         if filters.date_from is not None and filters.date_to is not None:
             clauses.append(
-                f"created_at >= '{filters.date_from.isoformat()}'"
-                f" AND created_at <= '{filters.date_to.isoformat()}'"
+                f"created_at >= TIMESTAMP '{_dt_to_sql(filters.date_from)}'"
+                f" AND created_at <= TIMESTAMP '{_dt_to_sql(filters.date_to)}'"
             )
         elif filters.date_from is not None:
-            clauses.append(f"created_at >= '{filters.date_from.isoformat()}'")
+            clauses.append(f"created_at >= TIMESTAMP '{_dt_to_sql(filters.date_from)}'")
         elif filters.date_to is not None:
-            clauses.append(f"created_at <= '{filters.date_to.isoformat()}'")
+            clauses.append(f"created_at <= TIMESTAMP '{_dt_to_sql(filters.date_to)}'")
 
         return " AND ".join(clauses)
 
@@ -253,20 +282,23 @@ class VectorStore:
         if table.num_rows == 0:
             return []
 
+        if "_distance" not in table.column_names:
+            raise ValueError(
+                "LanceDB search result is missing expected '_distance' column; "
+                f"got columns: {table.column_names}"
+            )
+
         rows = table.to_pydict()
         results: list[ChunkResult] = []
         for i in range(table.num_rows):
             distance = float(rows["_distance"][i])
             score = 1.0 - distance
-            created_at_raw = rows["created_at"][i]
-            created_at = (
-                datetime.datetime.fromisoformat(created_at_raw)
-                if isinstance(created_at_raw, str)
-                else created_at_raw
-            )
-            # Ensure timezone-aware
+            created_at: datetime.datetime = rows["created_at"][i]
+            # LanceDB returns timestamps with ZoneInfo; normalise to stdlib UTC.
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=datetime.UTC)
+            else:
+                created_at = created_at.astimezone(datetime.UTC)
 
             results.append(
                 ChunkResult(

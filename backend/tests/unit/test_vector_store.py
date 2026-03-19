@@ -1,4 +1,4 @@
-"""Unit tests for nexuspkm.engine.vector_store — TDD Red phase.
+"""Unit tests for nexuspkm.engine.vector_store.
 
 Uses injected _conn mock to avoid real LanceDB I/O.
 Spec: F-002 FR-3
@@ -10,7 +10,10 @@ import datetime
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
+import pyarrow as pa
 import pytest
+
+from nexuspkm.models.document import SourceType
 
 NOW = datetime.datetime(2026, 3, 18, 12, 0, 0, tzinfo=datetime.UTC)
 
@@ -23,7 +26,7 @@ NOW = datetime.datetime(2026, 3, 18, 12, 0, 0, tzinfo=datetime.UTC)
 def _make_chunk(**kwargs: Any) -> Any:
     from nexuspkm.engine.vector_store import VectorChunk
 
-    defaults = {
+    defaults: dict[str, Any] = {
         "chunk_id": "chunk-001",
         "document_id": "doc-001",
         "text": "Hello world",
@@ -38,11 +41,8 @@ def _make_chunk(**kwargs: Any) -> Any:
     return VectorChunk(**defaults)
 
 
-def _make_mock_conn() -> MagicMock:
-    """Build a minimal mock AsyncConnection with a mock table."""
-    import pyarrow as pa
-
-    arrow_result = pa.table(
+def _make_arrow_result() -> pa.Table:
+    return pa.table(
         {
             "chunk_id": ["chunk-001"],
             "document_id": ["doc-001"],
@@ -51,18 +51,22 @@ def _make_mock_conn() -> MagicMock:
             "source_type": ["jira_issue"],
             "source_id": ["NXP-1"],
             "title": ["Test Doc"],
-            "created_at": [NOW.isoformat()],
+            "created_at": pa.array([NOW], type=pa.timestamp("us", tz="UTC")),
             "_distance": [0.1],
         }
     )
 
-    # vector_search chain: .where().limit().to_arrow()
+
+def _make_mock_table(arrow_result: pa.Table | None = None) -> MagicMock:
+    """Build a mock AsyncTable."""
+    if arrow_result is None:
+        arrow_result = _make_arrow_result()
+
     search_chain = MagicMock()
     search_chain.where = MagicMock(return_value=search_chain)
     search_chain.limit = MagicMock(return_value=search_chain)
     search_chain.to_arrow = AsyncMock(return_value=arrow_result)
 
-    # merge_insert returns a builder mock whose execute is awaitable
     merge_builder = MagicMock()
     merge_builder.when_not_matched_insert_all = MagicMock(return_value=None)
     merge_builder.when_matched_update_all = MagicMock(return_value=None)
@@ -75,13 +79,18 @@ def _make_mock_conn() -> MagicMock:
     mock_table.vector_search = MagicMock(return_value=search_chain)
     # Expose search_chain so tests can assert on it via store._table._search_chain
     mock_table._search_chain = search_chain
+    return mock_table
+
+
+def _make_mock_conn(*, table_exists: bool = False) -> MagicMock:
+    """Build a minimal mock AsyncConnection."""
+    mock_table = _make_mock_table()
 
     mock_conn = AsyncMock()
     mock_conn.create_table = AsyncMock(return_value=mock_table)
     mock_conn.open_table = AsyncMock(return_value=mock_table)
-    mock_conn.list_tables = AsyncMock(return_value=[])
+    mock_conn.list_tables = AsyncMock(return_value=["documents"] if table_exists else [])
     mock_conn.close = AsyncMock()
-
     return mock_conn
 
 
@@ -134,7 +143,6 @@ class TestSearchFilters:
 
     def test_accepts_source_type(self) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
-        from nexuspkm.models.document import SourceType
 
         f = SearchFilters(source_type=SourceType.JIRA_ISSUE)
         assert f.source_type == SourceType.JIRA_ISSUE
@@ -158,6 +166,40 @@ class TestVectorStoreInit:
 
         vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
         assert vs is not None
+
+
+# ---------------------------------------------------------------------------
+# _open() — lifecycle
+# ---------------------------------------------------------------------------
+
+
+class TestVectorStoreOpen:
+    async def test_open_creates_table_when_not_exists(self, mock_conn: MagicMock) -> None:
+        from nexuspkm.engine.vector_store import VectorStore
+
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
+        await vs._open()
+        mock_conn.create_table.assert_called_once()
+        mock_conn.open_table.assert_not_called()
+
+    async def test_open_uses_open_table_when_table_exists(self) -> None:
+        from nexuspkm.engine.vector_store import VectorStore
+
+        conn = _make_mock_conn(table_exists=True)
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=conn)
+        await vs._open()
+        conn.open_table.assert_called_once_with("documents")
+        conn.create_table.assert_not_called()
+
+    async def test_open_is_idempotent_under_concurrent_calls(self, mock_conn: MagicMock) -> None:
+        import asyncio
+
+        from nexuspkm.engine.vector_store import VectorStore
+
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
+        # Fire two concurrent _open() calls — create_table must only be called once
+        await asyncio.gather(vs._open(), vs._open())
+        mock_conn.create_table.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -205,9 +247,12 @@ class TestVectorStoreSearch:
         await store.search([0.1, 0.2, 0.3, 0.4], top_k=3)
         store._table._search_chain.limit.assert_called_with(3)
 
+    async def test_search_raises_on_nonpositive_top_k(self, store: Any) -> None:
+        with pytest.raises(ValueError, match="top_k"):
+            await store.search([0.1, 0.2, 0.3, 0.4], top_k=0)
+
     async def test_search_with_source_type_filter_calls_where(self, store: Any) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
-        from nexuspkm.models.document import SourceType
 
         filters = SearchFilters(source_type=SourceType.JIRA_ISSUE)
         await store.search([0.1, 0.2, 0.3, 0.4], top_k=5, filters=filters)
@@ -226,6 +271,7 @@ class TestVectorStoreSearch:
         chain.where.assert_called()
         call_arg = chain.where.call_args[0][0]
         assert "created_at" in call_arg
+        assert "TIMESTAMP" in call_arg
 
     async def test_search_with_date_range_filter(self, store: Any) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
@@ -236,6 +282,7 @@ class TestVectorStoreSearch:
         chain.where.assert_called()
         call_arg = chain.where.call_args[0][0]
         assert "created_at" in call_arg
+        assert "TIMESTAMP" in call_arg
 
     async def test_search_with_date_to_only_filter(self, store: Any) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
@@ -247,9 +294,45 @@ class TestVectorStoreSearch:
         call_arg = chain.where.call_args[0][0]
         assert "created_at" in call_arg
 
+    async def test_search_with_all_filters_combined(self, store: Any) -> None:
+        from nexuspkm.engine.vector_store import SearchFilters
+
+        filters = SearchFilters(source_type=SourceType.JIRA_ISSUE, date_from=NOW, date_to=NOW)
+        await store.search([0.1, 0.2, 0.3, 0.4], top_k=5, filters=filters)
+        chain = store._table._search_chain
+        chain.where.assert_called()
+        call_arg = chain.where.call_args[0][0]
+        assert "source_type" in call_arg
+        assert "created_at" in call_arg
+
     async def test_search_no_filter_does_not_call_where(self, store: Any) -> None:
         await store.search([0.1, 0.2, 0.3, 0.4], top_k=5)
         store._table._search_chain.where.assert_not_called()
+
+    async def test_search_raises_on_missing_distance_column(self, mock_conn: MagicMock) -> None:
+        from nexuspkm.engine.vector_store import VectorStore
+
+        # Return a result without _distance column
+        bad_result = pa.table(
+            {
+                "chunk_id": ["c1"],
+                "document_id": ["d1"],
+                "text": ["hello"],
+                "vector": [[0.1, 0.2, 0.3, 0.4]],
+                "source_type": ["jira_issue"],
+                "source_id": ["s1"],
+                "title": ["t1"],
+                "created_at": pa.array([NOW], type=pa.timestamp("us", tz="UTC")),
+            }
+        )
+        mock_table = _make_mock_table(arrow_result=bad_result)
+        mock_conn.create_table = AsyncMock(return_value=mock_table)
+
+        vs = VectorStore(db_path="/tmp/test", dimensions=4, _conn=mock_conn)
+        await vs._open()
+
+        with pytest.raises(ValueError, match="_distance"):
+            await vs.search([0.1, 0.2, 0.3, 0.4], top_k=5)
 
 
 # ---------------------------------------------------------------------------
