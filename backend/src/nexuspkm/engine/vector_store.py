@@ -26,6 +26,14 @@ logger = structlog.get_logger(__name__)
 TABLE_NAME = "documents"
 
 
+def _escape_sql_string(value: str) -> str:
+    """Escape a string value for safe interpolation in a SQL filter expression.
+
+    Replaces each single quote with two single quotes (standard SQL escaping).
+    """
+    return value.replace("'", "''")
+
+
 class VectorChunk(BaseModel):
     """A single chunk ready for storage in the vector store."""
 
@@ -47,7 +55,7 @@ class SearchFilters(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source_type: str | None = None
+    source_type: SourceType | None = None
     date_from: datetime.datetime | None = None
     date_to: datetime.datetime | None = None
 
@@ -127,6 +135,9 @@ class VectorStore:
         if not chunks:
             return
 
+        if self._table is None:
+            await self._open()
+
         arrow_table = self._chunks_to_arrow(chunks)
         builder = self._table.merge_insert("chunk_id")
         builder.when_not_matched_insert_all()
@@ -136,7 +147,11 @@ class VectorStore:
 
     async def delete(self, document_id: str) -> None:
         """Delete all chunks belonging to *document_id*."""
-        await self._table.delete(f"document_id = '{document_id}'")
+        if self._table is None:
+            await self._open()
+
+        safe_id = _escape_sql_string(document_id)
+        await self._table.delete(f"document_id = '{safe_id}'")
         logger.info("vector_store.deleted", document_id=document_id)
 
     # ------------------------------------------------------------------
@@ -154,6 +169,9 @@ class VectorStore:
         Optionally filters by source_type and/or date range.
         Score is computed as ``1.0 - cosine_distance``.
         """
+        if self._table is None:
+            await self._open()
+
         query = self._table.vector_search(vector)
 
         where_clause = self._build_where(filters)
@@ -167,6 +185,9 @@ class VectorStore:
 
     async def count(self) -> int:
         """Return total number of rows in the ``documents`` table."""
+        if self._table is None:
+            await self._open()
+
         return int(await self._table.count_rows())
 
     # ------------------------------------------------------------------
@@ -212,7 +233,8 @@ class VectorStore:
         clauses: list[str] = []
 
         if filters.source_type is not None:
-            clauses.append(f"source_type = '{filters.source_type}'")
+            # SourceType is a validated enum — its .value contains only safe ASCII chars
+            clauses.append(f"source_type = '{filters.source_type.value}'")
 
         if filters.date_from is not None and filters.date_to is not None:
             clauses.append(

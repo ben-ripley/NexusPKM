@@ -12,7 +12,6 @@ from pathlib import Path
 import pytest
 
 NOW = datetime.datetime(2026, 3, 18, 12, 0, 0, tzinfo=datetime.UTC)
-LATER = datetime.datetime(2026, 3, 19, 12, 0, 0, tzinfo=datetime.UTC)
 
 
 def _make_chunk(chunk_id: str = "c1", document_id: str = "d1", **kwargs: object) -> object:

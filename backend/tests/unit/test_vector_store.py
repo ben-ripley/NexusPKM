@@ -134,9 +134,10 @@ class TestSearchFilters:
 
     def test_accepts_source_type(self) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
+        from nexuspkm.models.document import SourceType
 
-        f = SearchFilters(source_type="jira_issue")
-        assert f.source_type == "jira_issue"
+        f = SearchFilters(source_type=SourceType.JIRA_ISSUE)
+        assert f.source_type == SourceType.JIRA_ISSUE
 
     def test_accepts_date_range(self) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
@@ -206,8 +207,9 @@ class TestVectorStoreSearch:
 
     async def test_search_with_source_type_filter_calls_where(self, store: Any) -> None:
         from nexuspkm.engine.vector_store import SearchFilters
+        from nexuspkm.models.document import SourceType
 
-        filters = SearchFilters(source_type="jira_issue")
+        filters = SearchFilters(source_type=SourceType.JIRA_ISSUE)
         await store.search([0.1, 0.2, 0.3, 0.4], top_k=5, filters=filters)
         chain = store._table._search_chain
         chain.where.assert_called()
@@ -229,6 +231,16 @@ class TestVectorStoreSearch:
         from nexuspkm.engine.vector_store import SearchFilters
 
         filters = SearchFilters(date_from=NOW, date_to=NOW)
+        await store.search([0.1, 0.2, 0.3, 0.4], top_k=5, filters=filters)
+        chain = store._table._search_chain
+        chain.where.assert_called()
+        call_arg = chain.where.call_args[0][0]
+        assert "created_at" in call_arg
+
+    async def test_search_with_date_to_only_filter(self, store: Any) -> None:
+        from nexuspkm.engine.vector_store import SearchFilters
+
+        filters = SearchFilters(date_to=NOW)
         await store.search([0.1, 0.2, 0.3, 0.4], top_k=5, filters=filters)
         chain = store._table._search_chain
         chain.where.assert_called()
