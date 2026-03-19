@@ -7,6 +7,7 @@ NXP-52
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 from collections.abc import AsyncIterator
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -389,7 +390,8 @@ class TestSyncSchedulerLifecycle:
             mock_sched.start.assert_not_called()
             mock_sched.add_job.assert_not_called()
 
-    def test_shutdown_calls_scheduler_shutdown(self) -> None:
+    @pytest.mark.asyncio
+    async def test_shutdown_calls_scheduler_shutdown(self) -> None:
         from nexuspkm.connectors.scheduler import SyncScheduler
 
         registry = MagicMock()
@@ -402,6 +404,32 @@ class TestSyncSchedulerLifecycle:
             MockScheduler.return_value = mock_sched
 
             scheduler = SyncScheduler(registry, index)
-            scheduler.shutdown()
+            await scheduler.shutdown()
 
+            mock_sched.shutdown.assert_called_once_with(wait=False)
+
+    @pytest.mark.asyncio
+    async def test_shutdown_awaits_in_flight_tasks(self) -> None:
+        """shutdown() must await any in-flight _tracked_sync_connector tasks."""
+        from nexuspkm.connectors.scheduler import SyncScheduler
+
+        registry = MagicMock()
+        registry.all_connectors = MagicMock(return_value=[])
+        index = MagicMock()
+
+        with patch("nexuspkm.connectors.scheduler.AsyncIOScheduler") as MockScheduler:
+            mock_sched = MagicMock()
+            mock_sched.running = False
+            MockScheduler.return_value = mock_sched
+
+            scheduler = SyncScheduler(registry, index)
+
+            # Simulate a task that is "in flight" by manually adding a completed task
+            completed = asyncio.create_task(asyncio.sleep(0))
+            await completed  # ensure it's done
+            scheduler._tasks.add(completed)
+
+            await scheduler.shutdown()
+
+            # After shutdown, task set should be drained
             mock_sched.shutdown.assert_called_once_with(wait=False)

@@ -9,6 +9,7 @@ Spec: ADR-004
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 
 import structlog
@@ -29,6 +30,9 @@ class SyncScheduler:
         self._registry = registry
         self._index = index
         self._scheduler = AsyncIOScheduler()
+        # Tracks in-flight sync tasks so shutdown() can await their completion
+        # before the stores they write to are closed.
+        self._tasks: set[asyncio.Task[None]] = set()
 
     def start(self, intervals: dict[str, int]) -> None:
         """Schedule one interval job per connector that appears in *intervals*.
@@ -45,7 +49,7 @@ class SyncScheduler:
             if seconds is None:
                 continue
             self._scheduler.add_job(
-                self._sync_connector,
+                self._tracked_sync_connector,
                 "interval",
                 seconds=seconds,
                 args=[connector.name],
@@ -59,9 +63,27 @@ class SyncScheduler:
             )
         self._scheduler.start()
 
-    def shutdown(self) -> None:
-        """Stop the APScheduler instance."""
+    async def shutdown(self) -> None:
+        """Stop the scheduler and await all in-flight sync tasks.
+
+        Stops APScheduler from dispatching new jobs, then awaits any currently
+        running sync coroutines so that in-progress store writes complete before
+        the vector/graph stores are closed by the lifespan teardown.
+        """
         self._scheduler.shutdown(wait=False)
+        if self._tasks:
+            await asyncio.gather(*list(self._tasks), return_exceptions=True)
+
+    async def _tracked_sync_connector(self, name: str) -> None:
+        """APScheduler job entry point — registers the current task for shutdown tracking."""
+        task = asyncio.current_task()
+        if task is not None:
+            self._tasks.add(task)
+        try:
+            await self._sync_connector(name)
+        finally:
+            if task is not None:
+                self._tasks.discard(task)
 
     async def _sync_connector(self, name: str) -> None:
         """Perform one sync cycle for the named connector.
@@ -105,10 +127,10 @@ class SyncScheduler:
             return
 
         # --- Steps 2-4: fetch, ingest, update state ---
+        docs_synced = 0
         try:
             sync_state = await connector.get_sync_state()
             since = sync_state.last_synced_at
-            docs_synced = 0
             async for doc in connector.fetch(since):
                 await self._index.insert(doc)
                 docs_synced += 1
@@ -133,6 +155,7 @@ class SyncScheduler:
                 "connector_sync_error",
                 connector=name,
                 error=str(exc),
+                docs_synced_before_error=docs_synced,
                 exc_info=True,
             )
             self._registry.update_status(

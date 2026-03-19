@@ -63,7 +63,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     yield
 
     if _sync_scheduler:
-        _sync_scheduler.shutdown()
+        await _sync_scheduler.shutdown()
     if _vector_store:
         await _vector_store.close()
     if _graph_store:

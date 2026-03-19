@@ -146,7 +146,7 @@ def _make_stub_connector(stub_name: str = "stub") -> BaseConnector:
 
 
 class TestConnectorRegistry:
-    def _make_stub(self, name: str = "stub") -> object:
+    def _make_stub(self, name: str = "stub") -> BaseConnector:
         return _make_stub_connector(name)
 
     def test_empty_registry(self) -> None:
@@ -163,7 +163,7 @@ class TestConnectorRegistry:
 
         reg = ConnectorRegistry()
         stub = self._make_stub("myconn")
-        reg.register(stub)  # type: ignore[arg-type]
+        reg.register(stub)
 
         retrieved = reg.get("myconn")
         assert retrieved is stub
@@ -181,8 +181,8 @@ class TestConnectorRegistry:
         reg = ConnectorRegistry()
         s1 = self._make_stub("conn_a")
         s2 = self._make_stub("conn_b")
-        reg.register(s1)  # type: ignore[arg-type]
-        reg.register(s2)  # type: ignore[arg-type]
+        reg.register(s1)
+        reg.register(s2)
 
         all_c = reg.all_connectors()
         assert len(all_c) == 2
@@ -194,7 +194,7 @@ class TestConnectorRegistry:
 
         reg = ConnectorRegistry()
         stub = self._make_stub("myconn")
-        reg.register(stub)  # type: ignore[arg-type]
+        reg.register(stub)
 
         statuses = reg.get_all_statuses()
         assert "myconn" in statuses
@@ -206,7 +206,7 @@ class TestConnectorRegistry:
 
         reg = ConnectorRegistry()
         stub = self._make_stub("myconn")
-        reg.register(stub)  # type: ignore[arg-type]
+        reg.register(stub)
 
         new_status = ConnectorStatus(name="myconn", status="healthy", documents_synced=5)
         reg.update_status("myconn", new_status)
