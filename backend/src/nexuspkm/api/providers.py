@@ -33,16 +33,7 @@ async def get_health(
 async def get_active(
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
 ) -> dict[str, Any]:
-    return {
-        "llm": {
-            "provider": registry._config.llm.primary.provider,
-            "model": registry._config.llm.primary.model,
-        },
-        "embedding": {
-            "provider": registry._config.embedding.primary.provider,
-            "model": registry._config.embedding.primary.model,
-        },
-    }
+    return registry.active_config()
 
 
 @router.put("/config")
@@ -51,10 +42,10 @@ async def update_config(
     registry: Annotated[ProviderRegistry, Depends(get_registry)],
 ) -> dict[str, str]:
     try:
-        registry.reload(payload)
+        await registry.reload(payload)
     except Exception as exc:
         log.error("provider_config_reload_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Provider configuration reload failed") from exc
     log.info(
         "provider_config_updated",
         llm=payload.llm.primary.provider,

@@ -1,5 +1,6 @@
 """Ollama LLM and embedding providers via LlamaIndex."""
 
+import os
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -7,6 +8,7 @@ from typing import Any
 import structlog
 
 from nexuspkm.config.models import EmbeddingProviderConfig, LLMProviderConfig
+from nexuspkm.providers._utils import extract_tokens, to_chat_messages
 from nexuspkm.providers.base import (
     BaseEmbeddingProvider,
     BaseLLMProvider,
@@ -35,25 +37,9 @@ try:
 except ImportError as exc:  # pragma: no cover
     raise ImportError("Install llama-index-core to use providers") from exc
 
-_DEFAULT_OLLAMA_URL = "http://localhost:11434"
-
-
-def _to_chat_messages(messages: list[dict[str, str]]) -> list[Any]:
-    return [ChatMessage(role=MessageRole(m["role"]), content=m["content"]) for m in messages]
-
-
-def _extract_tokens(raw: dict[str, Any]) -> tuple[int, int]:
-    usage = raw.get("usage", {})
-    input_tokens = int(
-        usage.get("prompt_tokens") or usage.get("inputTokens") or usage.get("input_tokens") or 0
-    )
-    output_tokens = int(
-        usage.get("completion_tokens")
-        or usage.get("outputTokens")
-        or usage.get("output_tokens")
-        or 0
-    )
-    return input_tokens, output_tokens
+# Default base URL for Ollama. Override via the OLLAMA_BASE_URL environment variable
+# or by setting base_url in config/providers.yaml.
+_OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 
 
 class OllamaLLMProvider(BaseLLMProvider):
@@ -64,19 +50,19 @@ class OllamaLLMProvider(BaseLLMProvider):
         else:
             self._client = Ollama(  # pragma: no cover
                 model=config.model,
-                base_url=config.base_url or _DEFAULT_OLLAMA_URL,
+                base_url=config.base_url or _OLLAMA_BASE_URL,
                 request_timeout=60.0,
             )
 
     async def generate(self, messages: list[dict[str, str]], **kwargs: object) -> LLMResponse:
-        chat_messages = _to_chat_messages(messages)
+        chat_messages = to_chat_messages(messages)
         try:
             response = await self._client.achat(chat_messages)
         except Exception as exc:
             log.error("ollama_llm_generate_failed", error=str(exc))
             raise ProviderError(str(exc)) from exc
         raw: dict[str, Any] = response.raw or {}
-        input_tokens, output_tokens = _extract_tokens(raw)
+        input_tokens, output_tokens = extract_tokens(raw)
         return LLMResponse(
             content=response.message.content,
             provider="ollama",
@@ -86,14 +72,18 @@ class OllamaLLMProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages: list[dict[str, str]], **kwargs: object) -> AsyncIterator[str]:
-        chat_messages = _to_chat_messages(messages)
-        try:
-            async for chunk in self._client.astream_chat(chat_messages):
-                if chunk.delta:
-                    yield chunk.delta
-        except Exception as exc:
-            log.error("ollama_llm_stream_failed", error=str(exc))
-            raise ProviderError(str(exc)) from exc
+        chat_messages = to_chat_messages(messages)
+
+        async def _gen() -> AsyncIterator[str]:
+            try:
+                async for chunk in self._client.astream_chat(chat_messages):
+                    if chunk.delta:
+                        yield chunk.delta
+            except Exception as exc:
+                log.error("ollama_llm_stream_failed", error=str(exc))
+                raise ProviderError(str(exc)) from exc
+
+        return _gen()
 
     async def health_check(self) -> ProviderHealth:
         start = time.monotonic()
@@ -113,7 +103,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         else:
             self._client = OllamaEmbedding(  # pragma: no cover
                 model_name=config.model,
-                base_url=config.base_url or _DEFAULT_OLLAMA_URL,
+                base_url=config.base_url or _OLLAMA_BASE_URL,
             )
 
     @property

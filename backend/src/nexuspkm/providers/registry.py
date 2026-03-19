@@ -1,6 +1,6 @@
 """Provider registry: instantiates, owns, and routes to LLM/embedding providers."""
 
-from typing import Any
+import asyncio
 
 import structlog
 
@@ -15,6 +15,7 @@ from nexuspkm.providers.base import (
     EmbeddingResponse,
     LLMResponse,
     ProviderError,
+    ProviderHealth,
 )
 
 log = structlog.get_logger()
@@ -57,6 +58,7 @@ def _make_embedding(config: EmbeddingProviderConfig) -> BaseEmbeddingProvider:
 class ProviderRegistry:
     def __init__(self, config: ProvidersConfig) -> None:
         self._config = config
+        self._reload_lock: asyncio.Lock = asyncio.Lock()
         self._llm_primary: BaseLLMProvider = _make_llm(config.llm.primary)
         self._llm_fallback: BaseLLMProvider | None = (
             _make_llm(config.llm.fallback) if config.llm.fallback else None
@@ -72,10 +74,22 @@ class ProviderRegistry:
     def get_embedding(self) -> BaseEmbeddingProvider:
         return self._emb_primary
 
-    async def check_health(self) -> dict[str, Any]:
+    def active_config(self) -> dict[str, dict[str, str]]:
+        return {
+            "llm": {
+                "provider": self._config.llm.primary.provider,
+                "model": self._config.llm.primary.model,
+            },
+            "embedding": {
+                "provider": self._config.embedding.primary.provider,
+                "model": self._config.embedding.primary.model,
+            },
+        }
+
+    async def check_health(self) -> dict[str, ProviderHealth]:
         llm_health = await self._llm_primary.health_check()
         emb_health = await self._emb_primary.health_check()
-        result: dict[str, Any] = {"llm": llm_health, "embedding": emb_health}
+        result: dict[str, ProviderHealth] = {"llm": llm_health, "embedding": emb_health}
         if self._llm_fallback:
             result["llm_fallback"] = await self._llm_fallback.health_check()
         if self._emb_fallback:
@@ -110,20 +124,21 @@ class ProviderRegistry:
             )
             return await self._emb_fallback.embed(texts)
 
-    def reload(self, config: ProvidersConfig) -> None:
+    async def reload(self, config: ProvidersConfig) -> None:
         new_llm_primary = _make_llm(config.llm.primary)
         new_llm_fallback = _make_llm(config.llm.fallback) if config.llm.fallback else None
         new_emb_primary = _make_embedding(config.embedding.primary)
         new_emb_fallback = (
             _make_embedding(config.embedding.fallback) if config.embedding.fallback else None
         )
-        (
-            self._config,
-            self._llm_primary,
-            self._llm_fallback,
-            self._emb_primary,
-            self._emb_fallback,
-        ) = (config, new_llm_primary, new_llm_fallback, new_emb_primary, new_emb_fallback)
+        async with self._reload_lock:
+            (
+                self._config,
+                self._llm_primary,
+                self._llm_fallback,
+                self._emb_primary,
+                self._emb_fallback,
+            ) = (config, new_llm_primary, new_llm_fallback, new_emb_primary, new_emb_fallback)
         log.info(
             "provider_registry_reloaded",
             llm_provider=config.llm.primary.provider,

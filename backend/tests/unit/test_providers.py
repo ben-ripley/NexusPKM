@@ -186,10 +186,24 @@ class TestBedrockLLMProvider:
         mock_client = _mock_llm_client("Hello World")
         p = BedrockLLMProvider(_LLM_CFG_BEDROCK, _client=mock_client)
         chunks = []
-        async for chunk in p.stream(_MESSAGES):
+        async for chunk in await p.stream(_MESSAGES):
             chunks.append(chunk)
         assert len(chunks) > 0
         assert "".join(chunks).strip()
+
+    async def test_stream_raises_provider_error_on_exception(self) -> None:
+        from nexuspkm.providers.bedrock import BedrockLLMProvider
+
+        async def _failing_stream(*args: Any, **kwargs: Any) -> AsyncIterator[MagicMock]:
+            raise Exception("stream failure")
+            yield  # make it an async generator
+
+        mock_client = MagicMock()
+        mock_client.astream_chat = _failing_stream
+        p = BedrockLLMProvider(_LLM_CFG_BEDROCK, _client=mock_client)
+        with pytest.raises(ProviderError):
+            async for _ in await p.stream(_MESSAGES):
+                pass
 
     async def test_health_check_healthy(self) -> None:
         from nexuspkm.providers.bedrock import BedrockLLMProvider
@@ -321,6 +335,30 @@ class TestOpenAILLMProvider:
         health = await p.health_check()
         assert health.status == "healthy"
 
+    async def test_stream_yields_chunks(self) -> None:
+        from nexuspkm.providers.openai import OpenAILLMProvider
+
+        mock_client = _mock_llm_client("Hi there")
+        p = OpenAILLMProvider(_LLM_CFG_OPENAI, _client=mock_client)
+        chunks = []
+        async for chunk in await p.stream(_MESSAGES):
+            chunks.append(chunk)
+        assert len(chunks) > 0
+
+    async def test_stream_raises_provider_error_on_exception(self) -> None:
+        from nexuspkm.providers.openai import OpenAILLMProvider
+
+        async def _failing_stream(*args: Any, **kwargs: Any) -> AsyncIterator[MagicMock]:
+            raise Exception("stream failure")
+            yield  # make it an async generator
+
+        mock_client = MagicMock()
+        mock_client.astream_chat = _failing_stream
+        p = OpenAILLMProvider(_LLM_CFG_OPENAI, _client=mock_client)
+        with pytest.raises(ProviderError):
+            async for _ in await p.stream(_MESSAGES):
+                pass
+
     async def test_health_check_unavailable(self) -> None:
         from nexuspkm.providers.openai import OpenAILLMProvider
 
@@ -405,6 +443,30 @@ class TestOllamaLLMProvider:
         p = self._make()
         health = await p.health_check()
         assert health.status == "healthy"
+
+    async def test_stream_yields_chunks(self) -> None:
+        from nexuspkm.providers.ollama import OllamaLLMProvider
+
+        mock_client = _mock_llm_client("Hey there")
+        p = OllamaLLMProvider(_LLM_CFG_OLLAMA, _client=mock_client)
+        chunks = []
+        async for chunk in await p.stream(_MESSAGES):
+            chunks.append(chunk)
+        assert len(chunks) > 0
+
+    async def test_stream_raises_provider_error_on_exception(self) -> None:
+        from nexuspkm.providers.ollama import OllamaLLMProvider
+
+        async def _failing_stream(*args: Any, **kwargs: Any) -> AsyncIterator[MagicMock]:
+            raise Exception("stream failure")
+            yield  # make it an async generator
+
+        mock_client = MagicMock()
+        mock_client.astream_chat = _failing_stream
+        p = OllamaLLMProvider(_LLM_CFG_OLLAMA, _client=mock_client)
+        with pytest.raises(ProviderError):
+            async for _ in await p.stream(_MESSAGES):
+                pass
 
     async def test_health_check_unavailable(self) -> None:
         from nexuspkm.providers.ollama import OllamaLLMProvider
@@ -573,7 +635,19 @@ class TestProviderRegistry:
         result = await reg.embed_with_fallback(["hello"])
         assert isinstance(result, EmbeddingResponse)
 
-    def test_reload_replaces_providers(self) -> None:
+    async def test_embed_with_fallback_raises_when_no_fallback(self) -> None:
+        from nexuspkm.providers.bedrock import BedrockEmbeddingProvider
+
+        reg = _patched_registry()
+        fail_client = MagicMock()
+        fail_client.aget_text_embedding_batch = AsyncMock(side_effect=Exception("primary down"))
+        reg._emb_primary = BedrockEmbeddingProvider(_EMB_CFG_BEDROCK, _client=fail_client)
+        reg._emb_fallback = None
+
+        with pytest.raises(ProviderError):
+            await reg.embed_with_fallback(["hello"])
+
+    async def test_reload_replaces_providers(self) -> None:
         from nexuspkm.providers.registry import ProviderRegistry
 
         cfg = _make_providers_config()
@@ -595,7 +669,7 @@ class TestProviderRegistry:
                 return_value=_mock_embed_client(1024),
             ),
         ):
-            reg.reload(new_cfg)
+            await reg.reload(new_cfg)
             new_llm = reg.get_llm()
 
         # After reload we get a new provider instance
@@ -621,7 +695,13 @@ def _build_test_app() -> "Any":
             "embedding": ProviderHealth(provider="bedrock", status="healthy", latency_ms=30.0),
         }
     )
-    mock_registry._config = _make_providers_config()
+    mock_registry.active_config = MagicMock(
+        return_value={
+            "llm": {"provider": "bedrock", "model": "anthropic.claude-sonnet-4-20250514"},
+            "embedding": {"provider": "bedrock", "model": "amazon.titan-embed-text-v2"},
+        }
+    )
+    mock_registry.reload = AsyncMock()
 
     test_app = FastAPI()
     test_app.include_router(router)
@@ -646,6 +726,8 @@ class TestProviderAPIEndpoints:
         data = resp.json()
         assert "llm" in data
         assert "embedding" in data
+        assert data["llm"]["provider"] == "bedrock"
+        assert data["embedding"]["provider"] == "bedrock"
 
     def test_put_config_valid_returns_200(self) -> None:
         client, _ = _build_test_app()
@@ -673,7 +755,7 @@ class TestProviderAPIEndpoints:
 
     def test_put_config_returns_500_when_reload_raises(self) -> None:
         client, mock_registry = _build_test_app()
-        mock_registry.reload.side_effect = RuntimeError("provider init failed")
+        mock_registry.reload = AsyncMock(side_effect=RuntimeError("provider init failed"))
         payload = {
             "llm": {"primary": {"provider": "openai", "model": "gpt-4o"}},
             "embedding": {"primary": {"provider": "openai", "model": "text-embedding-3-small"}},

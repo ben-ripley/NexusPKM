@@ -56,7 +56,3 @@ strict = true
 [[tool.mypy.overrides]]
 module = "llama_index.*"
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "llama_index.*.*"
-ignore_missing_imports = true

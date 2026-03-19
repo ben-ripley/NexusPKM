@@ -7,6 +7,7 @@ from typing import Any
 import structlog
 
 from nexuspkm.config.models import EmbeddingProviderConfig, LLMProviderConfig
+from nexuspkm.providers._utils import extract_tokens, to_chat_messages
 from nexuspkm.providers.base import (
     BaseEmbeddingProvider,
     BaseLLMProvider,
@@ -36,24 +37,6 @@ except ImportError as exc:  # pragma: no cover
     raise ImportError("Install llama-index-core to use providers") from exc
 
 
-def _to_chat_messages(messages: list[dict[str, str]]) -> list[Any]:
-    return [ChatMessage(role=MessageRole(m["role"]), content=m["content"]) for m in messages]
-
-
-def _extract_tokens(raw: dict[str, Any]) -> tuple[int, int]:
-    usage = raw.get("usage", {})
-    input_tokens = int(
-        usage.get("inputTokens") or usage.get("prompt_tokens") or usage.get("input_tokens") or 0
-    )
-    output_tokens = int(
-        usage.get("outputTokens")
-        or usage.get("completion_tokens")
-        or usage.get("output_tokens")
-        or 0
-    )
-    return input_tokens, output_tokens
-
-
 class BedrockLLMProvider(BaseLLMProvider):
     def __init__(self, config: LLMProviderConfig, *, _client: Any = None) -> None:
         self._config = config
@@ -68,14 +51,14 @@ class BedrockLLMProvider(BaseLLMProvider):
             )
 
     async def generate(self, messages: list[dict[str, str]], **kwargs: object) -> LLMResponse:
-        chat_messages = _to_chat_messages(messages)
+        chat_messages = to_chat_messages(messages)
         try:
             response = await self._client.achat(chat_messages)
         except Exception as exc:
             log.error("bedrock_llm_generate_failed", error=str(exc))
             raise ProviderError(str(exc)) from exc
         raw: dict[str, Any] = response.raw or {}
-        input_tokens, output_tokens = _extract_tokens(raw)
+        input_tokens, output_tokens = extract_tokens(raw)
         return LLMResponse(
             content=response.message.content,
             provider="bedrock",
@@ -85,14 +68,18 @@ class BedrockLLMProvider(BaseLLMProvider):
         )
 
     async def stream(self, messages: list[dict[str, str]], **kwargs: object) -> AsyncIterator[str]:
-        chat_messages = _to_chat_messages(messages)
-        try:
-            async for chunk in self._client.astream_chat(chat_messages):
-                if chunk.delta:
-                    yield chunk.delta
-        except Exception as exc:
-            log.error("bedrock_llm_stream_failed", error=str(exc))
-            raise ProviderError(str(exc)) from exc
+        chat_messages = to_chat_messages(messages)
+
+        async def _gen() -> AsyncIterator[str]:
+            try:
+                async for chunk in self._client.astream_chat(chat_messages):
+                    if chunk.delta:
+                        yield chunk.delta
+            except Exception as exc:
+                log.error("bedrock_llm_stream_failed", error=str(exc))
+                raise ProviderError(str(exc)) from exc
+
+        return _gen()
 
     async def health_check(self) -> ProviderHealth:
         start = time.monotonic()
