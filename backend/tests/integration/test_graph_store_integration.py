@@ -310,6 +310,23 @@ def test_get_relationships_no_filter(gs: GraphStore) -> None:
     assert len(rels) == 2
 
 
+def test_get_relationships_combined_filter(gs: GraphStore) -> None:
+    """Both from_id and to_id supplied simultaneously — WHERE uses AND."""
+    gs.upsert_person(PersonNode(id="p1", name="Alice"))
+    gs.upsert_person(PersonNode(id="p2", name="Bob"))
+    gs.upsert_meeting(MeetingNode(id="m1", title="Standup"))
+    gs.upsert_meeting(MeetingNode(id="m2", title="Retro"))
+    gs.create_relationship("ATTENDED", "Person", "p1", "Meeting", "m1")
+    gs.create_relationship("ATTENDED", "Person", "p2", "Meeting", "m2")
+    # p1 → m1 matches; p1 → m2, p2 → m1 do not
+    rels = gs.get_relationships("ATTENDED", from_id="p1", to_id="m1")
+    assert len(rels) == 1
+    assert rels[0]["from_id"] == "p1"
+    assert rels[0]["to_id"] == "m1"
+    # no match
+    assert gs.get_relationships("ATTENDED", from_id="p2", to_id="m1") == []
+
+
 def test_relationship_with_props(gs: GraphStore) -> None:
     gs.upsert_person(PersonNode(id="p1", name="Alice"))
     gs.upsert_document(DocumentNode(id="doc1", title="Notes"))

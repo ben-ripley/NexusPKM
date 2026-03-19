@@ -161,8 +161,8 @@ _NODE_TABLE_NAMES: frozenset[str] = frozenset(
     {"Person", "Project", "Topic", "Decision", "ActionItem", "Meeting", "Document"}
 )
 
-# Pattern for safe Cypher property key identifiers (letters, digits, underscore).
-_SAFE_KEY_RE: re.Pattern[str] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# Validates Cypher property key identifiers to prevent injection in SET clauses.
+_SAFE_CYPHER_IDENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 # ---------------------------------------------------------------------------
@@ -173,8 +173,8 @@ _SAFE_KEY_RE: re.Pattern[str] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 class GraphStore:
     """Kuzu-backed graph database for entity and relationship storage."""
 
-    _db: Any
-    _conn: Any
+    _db: kuzu.Database
+    _conn: kuzu.Connection
 
     def __init__(self, db_path: Path) -> None:
         # Create the parent directory; Kuzu creates db_path itself as a directory
@@ -194,31 +194,45 @@ class GraphStore:
         log.info("graph_store.schema_ready")
 
     def execute(self, query: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
-        """Execute a Cypher query and return rows as a list of dicts."""
-        result = self._conn.execute(query, params or {})
+        """Execute a Cypher query and return rows as a list of dicts.
+
+        **Security**: ``query`` must never contain string-interpolated user input.
+        All user-supplied values must be passed as parameterised ``$name``
+        placeholders via the ``params`` dict.
+
+        Logs and re-raises any driver-level exception.
+        """
+        try:
+            result = self._conn.execute(query, params or {})
+        except Exception as exc:
+            logger.error("graph_store.query_error", query=query, error=str(exc))
+            raise
+        # execute() returns list[QueryResult] only for multi-statement strings.
+        # We always pass a single statement, so the result is always QueryResult.
+        assert isinstance(result, kuzu.QueryResult), f"Unexpected result type: {type(result)}"
         col_names: list[str] = result.get_column_names()
         rows: list[dict[str, Any]] = []
         while result.has_next():
-            row: list[Any] = result.get_next()
-            rows.append(dict(zip(col_names, row, strict=True)))
+            raw = result.get_next()
+            assert isinstance(raw, list), f"Unexpected row type: {type(raw)}"
+            rows.append(dict(zip(col_names, raw, strict=True)))
         return rows
 
     # --- Person ---
 
     def upsert_person(self, node: PersonNode) -> None:
-        params: dict[str, Any] = {
-            "id": node.id,
-            "name": node.name,
-            "email": node.email,
-            "aliases": node.aliases,
-            "first_seen": node.first_seen,
-            "last_seen": node.last_seen,
-        }
-        self._conn.execute(
+        self.execute(
             "MERGE (n:Person {id: $id}) "
             "SET n.name = $name, n.email = $email, n.aliases = $aliases, "
             "n.first_seen = $first_seen, n.last_seen = $last_seen",
-            params,
+            {
+                "id": node.id,
+                "name": node.name,
+                "email": node.email,
+                "aliases": node.aliases,
+                "first_seen": node.first_seen,
+                "last_seen": node.last_seen,
+            },
         )
 
     def get_person(self, node_id: str) -> PersonNode | None:
@@ -242,16 +256,15 @@ class GraphStore:
     # --- Project ---
 
     def upsert_project(self, node: ProjectNode) -> None:
-        params: dict[str, Any] = {
-            "id": node.id,
-            "name": node.name,
-            "description": node.description,
-            "aliases": node.aliases,
-        }
-        self._conn.execute(
+        self.execute(
             "MERGE (n:Project {id: $id}) "
             "SET n.name = $name, n.description = $description, n.aliases = $aliases",
-            params,
+            {
+                "id": node.id,
+                "name": node.name,
+                "description": node.description,
+                "aliases": node.aliases,
+            },
         )
 
     def get_project(self, node_id: str) -> ProjectNode | None:
@@ -272,14 +285,9 @@ class GraphStore:
     # --- Topic ---
 
     def upsert_topic(self, node: TopicNode) -> None:
-        params: dict[str, Any] = {
-            "id": node.id,
-            "name": node.name,
-            "keywords": node.keywords,
-        }
-        self._conn.execute(
+        self.execute(
             "MERGE (n:Topic {id: $id}) SET n.name = $name, n.keywords = $keywords",
-            params,
+            {"id": node.id, "name": node.name, "keywords": node.keywords},
         )
 
     def get_topic(self, node_id: str) -> TopicNode | None:
@@ -299,16 +307,15 @@ class GraphStore:
     # --- Decision ---
 
     def upsert_decision(self, node: DecisionNode) -> None:
-        params: dict[str, Any] = {
-            "id": node.id,
-            "summary": node.summary,
-            "made_at": node.made_at,
-            "context": node.context,
-        }
-        self._conn.execute(
+        self.execute(
             "MERGE (n:Decision {id: $id}) "
             "SET n.summary = $summary, n.made_at = $made_at, n.context = $context",
-            params,
+            {
+                "id": node.id,
+                "summary": node.summary,
+                "made_at": node.made_at,
+                "context": node.context,
+            },
         )
 
     def get_decision(self, node_id: str) -> DecisionNode | None:
@@ -329,18 +336,17 @@ class GraphStore:
     # --- ActionItem ---
 
     def upsert_action_item(self, node: ActionItemNode) -> None:
-        params: dict[str, Any] = {
-            "id": node.id,
-            "description": node.description,
-            "status": node.status,
-            "due_date": node.due_date,
-            "assignee_id": node.assignee_id,
-        }
-        self._conn.execute(
+        self.execute(
             "MERGE (n:ActionItem {id: $id}) "
             "SET n.description = $description, n.status = $status, "
             "n.due_date = $due_date, n.assignee_id = $assignee_id",
-            params,
+            {
+                "id": node.id,
+                "description": node.description,
+                "status": node.status,
+                "due_date": node.due_date,
+                "assignee_id": node.assignee_id,
+            },
         )
 
     def get_action_item(self, node_id: str) -> ActionItemNode | None:
@@ -363,18 +369,17 @@ class GraphStore:
     # --- Meeting ---
 
     def upsert_meeting(self, node: MeetingNode) -> None:
-        params: dict[str, Any] = {
-            "id": node.id,
-            "title": node.title,
-            "date": node.date,
-            "duration_minutes": node.duration_minutes,
-            "source_id": node.source_id,
-        }
-        self._conn.execute(
+        self.execute(
             "MERGE (n:Meeting {id: $id}) "
             "SET n.title = $title, n.date = $date, "
             "n.duration_minutes = $duration_minutes, n.source_id = $source_id",
-            params,
+            {
+                "id": node.id,
+                "title": node.title,
+                "date": node.date,
+                "duration_minutes": node.duration_minutes,
+                "source_id": node.source_id,
+            },
         )
 
     def get_meeting(self, node_id: str) -> MeetingNode | None:
@@ -397,18 +402,17 @@ class GraphStore:
     # --- Document ---
 
     def upsert_document(self, node: DocumentNode) -> None:
-        params: dict[str, Any] = {
-            "id": node.id,
-            "title": node.title,
-            "source_type": node.source_type,
-            "source_id": node.source_id,
-            "created_at": node.created_at,
-        }
-        self._conn.execute(
+        self.execute(
             "MERGE (n:Document {id: $id}) "
             "SET n.title = $title, n.source_type = $source_type, "
             "n.source_id = $source_id, n.created_at = $created_at",
-            params,
+            {
+                "id": node.id,
+                "title": node.title,
+                "source_type": node.source_type,
+                "source_id": node.source_id,
+                "created_at": node.created_at,
+            },
         )
 
     def get_document(self, node_id: str) -> DocumentNode | None:
@@ -439,10 +443,7 @@ class GraphStore:
             raise ValueError(
                 f"Unknown node table: {table!r}. Must be one of {sorted(_NODE_TABLE_NAMES)}"
             )
-        self._conn.execute(
-            f"MATCH (n:{table} {{id: $id}}) DETACH DELETE n",
-            {"id": node_id},
-        )
+        self.execute(f"MATCH (n:{table} {{id: $id}}) DETACH DELETE n", {"id": node_id})
 
     # --- Relationships ---
 
@@ -473,7 +474,7 @@ class GraphStore:
         params: dict[str, Any] = {"from_id": from_id, "to_id": to_id}
         if props:
             for key in props:
-                if not _SAFE_KEY_RE.match(key):
+                if not _SAFE_CYPHER_IDENT_RE.match(key):
                     raise ValueError(f"Invalid property key: {key!r}")
             set_items = ", ".join(f"r.{k} = ${k}" for k in props)
             set_clause = f" SET {set_items}"
@@ -484,7 +485,7 @@ class GraphStore:
             f"MATCH (a:{from_table} {{id: $from_id}}), (b:{to_table} {{id: $to_id}}) "
             f"MERGE (a)-[r:{rel_type}]->(b){set_clause}"
         )
-        self._conn.execute(query, params)
+        self.execute(query, params)
 
     def get_relationships(
         self,
@@ -516,5 +517,15 @@ class GraphStore:
         return self.execute(query, params)
 
     def close(self) -> None:
-        del self._conn
-        del self._db
+        """Close the connection and database, flushing any pending writes.
+
+        Safe to call more than once.
+        """
+        conn = getattr(self, "_conn", None)
+        if conn is not None:
+            conn.close()
+            del self._conn
+        db = getattr(self, "_db", None)
+        if db is not None:
+            db.close()
+            del self._db

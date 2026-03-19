@@ -12,7 +12,7 @@ Spec: F-002 FR-4
 from __future__ import annotations
 
 import datetime
-from pathlib import Path  # noqa: I001
+from pathlib import Path  # noqa: I001 — ruff wants Path before datetime; keep stdlib order
 
 import pytest
 from pydantic import ValidationError
@@ -274,3 +274,16 @@ def test_get_relationships_unknown_rel_type_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Unknown relationship type"):
         gs.get_relationships("UNKNOWN_REL")
     gs.close()
+
+
+def test_create_relationship_wrong_to_table_raises(tmp_path: Path) -> None:
+    gs = GraphStore(tmp_path / "kuzu")
+    with pytest.raises(ValueError, match="expects TO"):
+        gs.create_relationship("ATTENDED", "Person", "p1", "Document", "d1")
+    gs.close()
+
+
+def test_close_is_idempotent(tmp_path: Path) -> None:
+    gs = GraphStore(tmp_path / "kuzu")
+    gs.close()
+    gs.close()  # second call must not raise
