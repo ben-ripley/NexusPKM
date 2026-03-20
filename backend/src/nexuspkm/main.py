@@ -10,6 +10,7 @@ from nexuspkm.api.chat import router as chat_router
 from nexuspkm.api.connectors import generic_router as generic_connectors_router
 from nexuspkm.api.connectors import get_connector_registry, get_sync_scheduler
 from nexuspkm.api.connectors import router as connectors_router
+from nexuspkm.api.dashboard import router as dashboard_router
 from nexuspkm.api.engine import get_knowledge_index
 from nexuspkm.api.engine import router as engine_router
 from nexuspkm.api.entities import (
@@ -209,6 +210,7 @@ app.include_router(generic_connectors_router)
 app.include_router(entities_router)
 app.include_router(chat_router)
 app.include_router(search_router)
+app.include_router(dashboard_router)
 
 
 @app.get("/health")

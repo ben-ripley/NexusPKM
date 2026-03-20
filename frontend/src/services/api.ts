@@ -1,6 +1,6 @@
 /**
  * Typed fetch client for the NexusPKM REST API.
- * Covers the search endpoints (F-007).
+ * Covers search (F-007) and dashboard (F-008) endpoints.
  */
 import { z } from 'zod'
 
@@ -112,4 +112,100 @@ export async function fetchSearchFacets(): Promise<{ source_types: string[] }> {
   const res = await fetch(`${API}/api/search/facets`)
   if (!res.ok) throw new Error('Failed to fetch facets')
   return FacetsResponseSchema.parse(await res.json())
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard schemas (F-008)
+// ---------------------------------------------------------------------------
+
+const ActivityItemSchema = z.object({
+  id: z.string(),
+  type: z.enum([
+    'document_ingested',
+    'entity_discovered',
+    'relationship_created',
+    'sync_completed',
+  ]),
+  title: z.string(),
+  description: z.string(),
+  source_type: z.string().nullable().optional(),
+  timestamp: z.string(),
+})
+
+const DashboardActivitySchema = z.object({
+  items: z.array(ActivityItemSchema),
+})
+
+const DashboardStatsSchema = z.object({
+  total_documents: z.number(),
+  total_chunks: z.number(),
+  total_entities: z.number(),
+  total_relationships: z.number(),
+  by_source_type: z.record(z.string(), z.number()),
+})
+
+const UpcomingItemSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  starts_at: z.string(),
+  meeting_prep_available: z.boolean(),
+  action_items: z.array(z.string()),
+})
+
+const DashboardUpcomingSchema = z.object({
+  items: z.array(UpcomingItemSchema),
+})
+
+const ConnectorStatusSchema = z.object({
+  name: z.string(),
+  status: z.enum(['healthy', 'degraded', 'unavailable']),
+  last_sync_at: z.string().nullable().optional(),
+  last_error: z.string().nullable().optional(),
+  documents_synced: z.number(),
+})
+
+// ---------------------------------------------------------------------------
+// Dashboard exported types
+// ---------------------------------------------------------------------------
+
+export type ActivityItem = z.infer<typeof ActivityItemSchema>
+export type DashboardActivity = z.infer<typeof DashboardActivitySchema>
+export type DashboardStats = z.infer<typeof DashboardStatsSchema>
+export type UpcomingItem = z.infer<typeof UpcomingItemSchema>
+export type DashboardUpcoming = z.infer<typeof DashboardUpcomingSchema>
+export type ConnectorStatus = z.infer<typeof ConnectorStatusSchema>
+
+// ---------------------------------------------------------------------------
+// Dashboard API functions
+// ---------------------------------------------------------------------------
+
+export async function fetchDashboardActivity(): Promise<DashboardActivity> {
+  const res = await fetch(`${API}/api/dashboard/activity`)
+  if (!res.ok) throw new Error(`Failed to fetch activity: ${res.status}`)
+  return DashboardActivitySchema.parse(await res.json())
+}
+
+export async function fetchDashboardStats(): Promise<DashboardStats> {
+  const res = await fetch(`${API}/api/dashboard/stats`)
+  if (!res.ok) throw new Error(`Failed to fetch dashboard stats: ${res.status}`)
+  return DashboardStatsSchema.parse(await res.json())
+}
+
+export async function fetchConnectorStatuses(): Promise<ConnectorStatus[]> {
+  const res = await fetch(`${API}/api/connectors/status`)
+  if (!res.ok) throw new Error(`Failed to fetch connector statuses: ${res.status}`)
+  return z.array(ConnectorStatusSchema).parse(await res.json())
+}
+
+export async function fetchDashboardUpcoming(): Promise<DashboardUpcoming> {
+  const res = await fetch(`${API}/api/dashboard/upcoming`)
+  if (!res.ok) throw new Error(`Failed to fetch upcoming items: ${res.status}`)
+  return DashboardUpcomingSchema.parse(await res.json())
+}
+
+export async function triggerConnectorSync(name: string): Promise<void> {
+  const res = await fetch(`${API}/api/connectors/${encodeURIComponent(name)}/sync`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(`Failed to trigger sync for ${name}: ${res.status}`)
 }
