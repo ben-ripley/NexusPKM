@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import { log } from '@/lib/log'
 
 export type Theme = 'light' | 'dark' | 'system'
 
@@ -44,7 +45,7 @@ export const useThemeStore = create<ThemeState>()(
       onRehydrateStorage: () => {
         return (state, error) => {
           if (error) {
-            console.warn('NexusPKM: failed to rehydrate theme store', error)
+            log.warn('failed to rehydrate theme store', error)
             return
           }
           if (state) {

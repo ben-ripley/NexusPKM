@@ -8,7 +8,7 @@ function ThrowingComponent(): never {
 }
 
 describe('ErrorFallback', () => {
-  it('renders error message and dashboard link', () => {
+  it('renders generic error message and dashboard link', () => {
     // Suppress React error boundary console.error noise
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
@@ -26,7 +26,27 @@ describe('ErrorFallback', () => {
     render(<RouterProvider router={router} />)
 
     expect(screen.getByRole('heading', { name: 'Something went wrong' })).toBeInTheDocument()
-    expect(screen.getByText('Test error')).toBeInTheDocument()
+    expect(screen.getByText('An unexpected error occurred. Please try again.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Go to Dashboard' })).toBeInTheDocument()
+  })
+
+  it('shows error details in development mode', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const router = createMemoryRouter(
+      [
+        {
+          path: '/',
+          element: <ThrowingComponent />,
+          errorElement: <ErrorFallback />,
+        },
+      ],
+      { initialEntries: ['/'] }
+    )
+
+    render(<RouterProvider router={router} />)
+
+    // In test/dev mode, the raw error message is shown in a <pre> block
+    expect(screen.getByText('Test error')).toBeInTheDocument()
   })
 })
