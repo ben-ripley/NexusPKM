@@ -16,4 +16,11 @@ contextBridge.exposeInMainWorld('electron', {
     setAutoLaunch: (enabled: boolean) =>
       ipcRenderer.send('settings:auto-launch', enabled),
   },
+
+  // Main process can request navigation (e.g. Quick Chat tray button).
+  // Replaces any previous listener to prevent duplicate registrations.
+  onNavigate: (callback: (path: string) => void) => {
+    ipcRenderer.removeAllListeners('navigate')
+    ipcRenderer.on('navigate', (_event, path: string) => callback(path))
+  },
 })

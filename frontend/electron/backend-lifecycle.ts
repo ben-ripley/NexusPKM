@@ -7,7 +7,10 @@ import * as net from 'net'
 export function isPortInUse(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer()
-    server.once('error', () => resolve(true))
+    server.once('error', (err: NodeJS.ErrnoException) => {
+      // Only treat EADDRINUSE as "port in use"; other errors (e.g. EACCES) are not conflicts
+      resolve(err.code === 'EADDRINUSE')
+    })
     server.once('listening', () => {
       server.close(() => resolve(false))
     })
@@ -28,7 +31,7 @@ export async function waitForHealth(
 
   while (Date.now() < deadline) {
     try {
-      const resp = await fetch(url)
+      const resp = await fetch(url, { signal: AbortSignal.timeout(pollIntervalMs) })
       if (resp.ok) {
         const data: unknown = await resp.json()
         if (

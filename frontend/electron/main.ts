@@ -123,10 +123,11 @@ function spawnBackend(): ChildProcess {
 }
 
 async function shutdownBackend(): Promise<void> {
-  if (!backendProcess) return
+  const proc = backendProcess
+  if (!proc) return
 
   try {
-    backendProcess.kill('SIGTERM')
+    proc.kill('SIGTERM')
   } catch {
     // Process already exited; nothing to do
     backendProcess = null
@@ -136,14 +137,14 @@ async function shutdownBackend(): Promise<void> {
   await new Promise<void>((resolve) => {
     const timeout = setTimeout(() => {
       try {
-        backendProcess?.kill('SIGKILL')
+        proc.kill('SIGKILL')
       } catch {
         // Already gone
       }
       resolve()
     }, 5000)
 
-    backendProcess!.once('exit', () => {
+    proc.once('exit', () => {
       clearTimeout(timeout)
       resolve()
     })
@@ -268,7 +269,10 @@ app.on('before-quit', (event) => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  // When minimize-to-tray is active, the window is hidden (not closed) so this
+  // event should not fire during normal use. If it does fire and tray is active,
+  // don't quit — the user can restore via the tray. On non-macOS without tray, quit.
+  if (process.platform !== 'darwin' && !minimizeToTray) {
     app.quit()
   }
 })
