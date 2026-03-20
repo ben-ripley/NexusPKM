@@ -15,7 +15,6 @@ Spec: F-006 API endpoints
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from typing import Annotated, Any, Literal
 
 import structlog
@@ -159,7 +158,8 @@ def _list_entities_sync(
     tables = [(entity_type, _TYPE_TABLE[entity_type])] if entity_type is not None else _ALL_TABLES
     results: list[EntityResponse] = []
     for etype, table in tables:
-        assert table in _ALLOWED_NODE_LABELS, f"Unexpected node label: {table!r}"
+        if table not in _ALLOWED_NODE_LABELS:
+            raise ValueError(f"Unexpected node label: {table!r}")
         name_field = _TYPE_NAME_FIELD[table]
         rows = graph_store.execute(f"MATCH (n:{table}) RETURN n.id AS id, n.{name_field} AS name")
         for row in rows:
@@ -201,7 +201,8 @@ def _merge_entities_sync(graph_store: GraphStore, source_id: str, target_id: str
     """
     source_table: str | None = None
     for table in _TYPE_TABLE.values():
-        assert table in _ALLOWED_NODE_LABELS, f"Unexpected node label: {table!r}"
+        if table not in _ALLOWED_NODE_LABELS:
+            raise ValueError(f"Unexpected node label: {table!r}")
         rows = graph_store.execute(f"MATCH (n:{table} {{id: $id}}) RETURN n.id", {"id": source_id})
         if rows:
             source_table = table
@@ -213,13 +214,27 @@ def _merge_entities_sync(graph_store: GraphStore, source_id: str, target_id: str
     for rel_type, (from_t, to_t) in _REL_TABLE_MAP.items():
         if from_t == source_table:
             for rel in graph_store.get_relationships(rel_type, from_id=source_id):
-                with contextlib.suppress(Exception):
+                try:
                     graph_store.create_relationship(rel_type, from_t, target_id, to_t, rel["to_id"])
+                except Exception as exc:
+                    log.warning(
+                        "entities.merge_rel_skip",
+                        rel_type=rel_type,
+                        direction="outgoing",
+                        error=str(exc),
+                    )
         if to_t == source_table:
             for rel in graph_store.get_relationships(rel_type, to_id=source_id):
-                with contextlib.suppress(Exception):
+                try:
                     graph_store.create_relationship(
                         rel_type, from_t, rel["from_id"], to_t, target_id
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "entities.merge_rel_skip",
+                        rel_type=rel_type,
+                        direction="incoming",
+                        error=str(exc),
                     )
 
     graph_store.delete_node(source_table, source_id)
@@ -246,7 +261,8 @@ async def get_entity(
 
 def _get_entity_sync(graph_store: GraphStore, entity_id: str) -> EntityDetailResponse | None:
     for etype, table in _ALL_TABLES:
-        assert table in _ALLOWED_NODE_LABELS, f"Unexpected node label: {table!r}"
+        if table not in _ALLOWED_NODE_LABELS:
+            raise ValueError(f"Unexpected node label: {table!r}")
         name_field = _TYPE_NAME_FIELD[table]
         rows = graph_store.execute(
             f"MATCH (n:{table} {{id: $id}}) RETURN n.id AS id, n.{name_field} AS name",
@@ -300,12 +316,21 @@ def _list_relationships_sync(
         else list(_REL_TABLE_MAP.keys())
     )
     results: list[RelationshipResponse] = []
+    seen: set[tuple[str, str, str]] = set()
     for rel_type in rel_types:
-        rows = graph_store.get_relationships(
-            rel_type,
-            from_id=entity_id_filter,
-        )
-        for row in rows:
+        # Query both directions when filtering by entity_id so neither
+        # outgoing nor incoming relationships are silently omitted.
+        if entity_id_filter is not None:
+            candidate_rows = graph_store.get_relationships(
+                rel_type, from_id=entity_id_filter
+            ) + graph_store.get_relationships(rel_type, to_id=entity_id_filter)
+        else:
+            candidate_rows = graph_store.get_relationships(rel_type)
+        for row in candidate_rows:
+            key = (rel_type, row["from_id"], row["to_id"])
+            if key in seen:
+                continue
+            seen.add(key)
             results.append(
                 RelationshipResponse(
                     rel_type=rel_type,

@@ -44,16 +44,16 @@ For each relationship, provide:
 - context: the text that supports this relationship
 
 Return ONLY valid JSON in this exact format:
-{{
+{
   "entities": [...],
   "relationships": [...],
   "confidence": 0.0
-}}
+}
 
-Document ID: {document_id}
+Document ID: __DOCUMENT_ID__
 
 Document:
-{document_text}"""
+__DOCUMENT_TEXT__"""
 
 
 class ExtractionError(Exception):
@@ -75,9 +75,10 @@ class EntityExtractor:
 
         Raises ExtractionError if the LLM provider itself fails.
         """
-        prompt = _EXTRACTION_PROMPT_TEMPLATE.format(
-            document_id=document_id,
-            document_text=document_text,
+        # Use explicit replacement rather than .format() so that document_text
+        # containing brace-like tokens (e.g. "{entities}") cannot corrupt the prompt.
+        prompt = _EXTRACTION_PROMPT_TEMPLATE.replace("__DOCUMENT_ID__", document_id).replace(
+            "__DOCUMENT_TEXT__", document_text
         )
         messages = [{"role": "user", "content": prompt}]
 

@@ -13,6 +13,7 @@ Spec: F-006 FR-4
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from typing import Any
 
@@ -96,8 +97,6 @@ class EntityDeduplicator:
 
         Adds new name variant as alias when a match is found.
         """
-        import asyncio
-
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._find_match_sync, entity)
 
