@@ -1,3 +1,5 @@
+import { Checkbox } from '@/components/ui/checkbox'
+import { Button } from '@/components/ui/button'
 import { ALL_ENTITY_TYPES } from '@/constants/entityTypes'
 
 const ALL_TYPES = ALL_ENTITY_TYPES
@@ -27,30 +29,33 @@ export default function GraphControls({ selectedTypes, onChange, nodeCount, edge
       <div className="flex flex-col gap-2">
         {ALL_TYPES.map((type) => (
           <label key={type} className="flex cursor-pointer items-center gap-2 text-sm">
-            <input
-              type="checkbox"
+            <Checkbox
               checked={selectedSet.has(type)}
-              onChange={() => toggle(type)}
-              className="size-4 rounded"
+              onCheckedChange={() => toggle(type)}
+              aria-label={type}
             />
-            {type}
+            <span>{type}</span>
           </label>
         ))}
       </div>
 
       <div className="flex gap-2">
-        <button
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => onChange([...ALL_TYPES])}
-          className="flex-1 rounded border px-2 py-1 text-xs"
+          className="flex-1 text-xs"
         >
           Select all
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => onChange([])}
-          className="flex-1 rounded border px-2 py-1 text-xs"
+          className="flex-1 text-xs"
         >
           Clear all
-        </button>
+        </Button>
       </div>
 
       <div className="text-xs text-muted-foreground">

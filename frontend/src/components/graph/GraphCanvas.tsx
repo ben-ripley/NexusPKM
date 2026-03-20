@@ -2,6 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ForceGraph2D } from 'react-force-graph'
 import type { GraphNode, GraphLink } from '@/hooks/useGraphData'
 
+// NodeObject<GraphNode> as defined by react-force-graph internals (not exported).
+// The force engine adds positional fields to each node at runtime.
+type FGNode = GraphNode & {
+  x?: number
+  y?: number
+  vx?: number
+  vy?: number
+  fx?: number
+  fy?: number
+}
+
 const TYPE_COLORS: Record<string, string> = {
   person: '#3b82f6',
   project: '#10b981',
@@ -42,7 +53,7 @@ export default function GraphCanvas({ graphData, onNodeClick, selectedNodeId }: 
   }, [])
 
   const paintNode = useCallback(
-    (node: GraphNode & { x?: number; y?: number }, ctx: CanvasRenderingContext2D) => {
+    (node: FGNode, ctx: CanvasRenderingContext2D) => {
       const x = node.x ?? 0
       const y = node.y ?? 0
       const color = TYPE_COLORS[node.entity_type] ?? DEFAULT_COLOR
@@ -65,12 +76,12 @@ export default function GraphCanvas({ graphData, onNodeClick, selectedNodeId }: 
   return (
     <div ref={containerRef} className="size-full">
       {dimensions.width > 0 && (
-        <ForceGraph2D
+        <ForceGraph2D<GraphNode, GraphLink>
           graphData={graphData}
           nodeCanvasObject={paintNode}
           nodeCanvasObjectMode={() => 'replace'}
-          onNodeClick={(node) => onNodeClick(node as GraphNode)}
-          nodeLabel={(node) => (node as GraphNode).name}
+          onNodeClick={(node: FGNode) => onNodeClick(node)}
+          nodeLabel={(node: FGNode) => node.name}
           linkColor={() => '#475569'}
           backgroundColor="transparent"
           width={dimensions.width}

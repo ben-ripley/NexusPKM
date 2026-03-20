@@ -20,8 +20,9 @@ import { useGraphData } from '@/hooks/useGraphData'
 import GraphControls from '@/components/graph/GraphControls'
 import EntityDetail from '@/components/graph/EntityDetail'
 import GraphPage from '@/pages/GraphPage'
+import { ALL_ENTITY_TYPES } from '@/constants/entityTypes'
 
-const ENTITY_TYPES = ['person', 'project', 'topic', 'decision', 'action_item', 'meeting']
+const ENTITY_TYPES = [...ALL_ENTITY_TYPES]
 
 function makeEntities() {
   return [
@@ -95,9 +96,9 @@ describe('GraphControls', () => {
         edgeCount={5}
       />
     )
-    expect(screen.getByLabelText(/person/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/project/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/topic/i)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /person/i })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /project/i })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /topic/i })).toBeInTheDocument()
   })
 
   it('shows node and edge counts', () => {
@@ -123,7 +124,7 @@ describe('GraphControls', () => {
         edgeCount={1}
       />
     )
-    fireEvent.click(screen.getByLabelText(/person/i))
+    fireEvent.click(screen.getByRole('checkbox', { name: /person/i }))
     expect(onChange).toHaveBeenCalledWith(ENTITY_TYPES.filter((t) => t !== 'person'))
   })
 
@@ -194,7 +195,7 @@ describe('EntityDetail', () => {
         createElement(EntityDetail, { entityId: 'e1', onClose: () => {} })
       )
     )
-    expect(document.querySelectorAll('[data-testid="entity-detail-skeleton"]').length).toBeGreaterThan(0)
+    expect(document.querySelectorAll('[data-testid^="entity-detail-skeleton"]').length).toBeGreaterThan(0)
   })
 
   it('renders entity name and type after loading', async () => {
@@ -206,7 +207,7 @@ describe('EntityDetail', () => {
         createElement(EntityDetail, { entityId: 'e1', onClose: () => {} })
       )
     )
-    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice', level: 3 })).toBeInTheDocument())
     expect(screen.getByText(/person/i)).toBeInTheDocument()
   })
 
@@ -220,7 +221,7 @@ describe('EntityDetail', () => {
         createElement(EntityDetail, { entityId: 'e1', onClose })
       )
     )
-    await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice', level: 3 })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /close/i }))
     expect(onClose).toHaveBeenCalled()
   })
@@ -235,6 +236,19 @@ describe('EntityDetail', () => {
       )
     )
     await waitFor(() => expect(screen.getByText(/works_on/i)).toBeInTheDocument())
+  })
+
+  it('shows error message when fetch fails', async () => {
+    ;(api.fetchEntityDetail as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(EntityDetail, { entityId: 'e1', onClose: () => {} })
+      )
+    )
+    await waitFor(() => expect(screen.getByText(/failed to load entity/i)).toBeInTheDocument())
   })
 })
 
@@ -272,24 +286,29 @@ describe('GraphPage', () => {
     render(<GraphPage />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByTestId('node-e1')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('node-e1'))
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice', level: 3 })).toBeInTheDocument())
   })
 
   it('closes entity detail panel when close button is clicked', async () => {
     render(<GraphPage />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByTestId('node-e1')).toBeInTheDocument())
     fireEvent.click(screen.getByTestId('node-e1'))
-    // Wait for the entity detail heading to appear (h2, distinct from node button)
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice' })).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice', level: 3 })).toBeInTheDocument())
     fireEvent.click(screen.getByRole('button', { name: /close/i }))
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Alice' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Alice', level: 3 })).not.toBeInTheDocument())
   })
 
   it('type filter toggle reduces node count', async () => {
     render(<GraphPage />, { wrapper: makeWrapper() })
     await waitFor(() => expect(screen.getByText(/3 nodes/i)).toBeInTheDocument())
     // Uncheck 'person' — Alice should be filtered out
-    fireEvent.click(screen.getByLabelText(/person/i))
+    fireEvent.click(screen.getByRole('checkbox', { name: /person/i }))
     await waitFor(() => expect(screen.getByText(/2 nodes/i)).toBeInTheDocument())
+  })
+
+  it('shows error message when graph data fails to load', async () => {
+    ;(api.fetchEntities as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('Network error'))
+    render(<GraphPage />, { wrapper: makeWrapper() })
+    await waitFor(() => expect(screen.getByText(/failed to load graph data/i)).toBeInTheDocument())
   })
 })

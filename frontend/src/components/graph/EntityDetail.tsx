@@ -18,7 +18,7 @@ export default function EntityDetail({ entityId, onClose }: Props) {
   return (
     <div className="flex h-full flex-col gap-4 overflow-y-auto p-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-semibold">Entity Detail</span>
+        <h2 className="text-sm font-semibold">Entity Detail</h2>
         <button
           aria-label="Close"
           onClick={onClose}
@@ -30,17 +30,17 @@ export default function EntityDetail({ entityId, onClose }: Props) {
 
       {isLoading ? (
         <div className="flex flex-col gap-3">
-          <Skeleton data-testid="entity-detail-skeleton" className="h-6 w-3/4" />
-          <Skeleton data-testid="entity-detail-skeleton" className="h-4 w-1/2" />
-          <Skeleton data-testid="entity-detail-skeleton" className="h-4 w-full" />
-          <Skeleton data-testid="entity-detail-skeleton" className="h-4 w-full" />
+          <Skeleton data-testid="entity-detail-skeleton-name" className="h-6 w-3/4" />
+          <Skeleton data-testid="entity-detail-skeleton-type" className="h-4 w-1/2" />
+          <Skeleton data-testid="entity-detail-skeleton-prop1" className="h-4 w-full" />
+          <Skeleton data-testid="entity-detail-skeleton-prop2" className="h-4 w-full" />
         </div>
       ) : isError ? (
         <p className="text-sm text-destructive">Failed to load entity.</p>
       ) : data ? (
         <>
           <div>
-            <h2 className="text-lg font-semibold">{data.name}</h2>
+            <h3 className="text-lg font-semibold">{data.name}</h3>
             <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
               {data.entity_type}
             </span>

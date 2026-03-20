@@ -215,7 +215,7 @@ export async function triggerConnectorSync(name: string): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const GraphEntitySchema = z.object({
-  id: z.string(),
+  id: z.string().min(1),
   name: z.string(),
   entity_type: z.string(),
   source_type: z.string(),
@@ -223,9 +223,9 @@ const GraphEntitySchema = z.object({
 })
 
 const GraphRelationshipSchema = z.object({
-  id: z.string(),
-  source_entity_id: z.string(),
-  target_entity_id: z.string(),
+  id: z.string().min(1),
+  source_entity_id: z.string().min(1),
+  target_entity_id: z.string().min(1),
   relationship_type: z.string(),
   properties: z.record(z.string(), z.unknown()),
 })
