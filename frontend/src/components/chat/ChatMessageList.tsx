@@ -6,9 +6,10 @@ import { cn } from '@/lib/utils'
 
 interface ChatMessageListProps {
   className?: string
+  onSuggestionClick?: (suggestion: string) => void
 }
 
-export default function ChatMessageList({ className }: ChatMessageListProps) {
+export default function ChatMessageList({ className, onSuggestionClick }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
 
   const currentSessionId = useChatStore((s) => s.currentSessionId)
@@ -61,6 +62,7 @@ export default function ChatMessageList({ className }: ChatMessageListProps) {
                 key={suggestion}
                 type="button"
                 className="rounded-full border bg-background px-3 py-1 text-sm transition-colors hover:bg-muted"
+                onClick={() => onSuggestionClick?.(suggestion)}
               >
                 {suggestion}
               </button>

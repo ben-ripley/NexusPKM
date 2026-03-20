@@ -18,9 +18,13 @@ export default function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user'
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(message.content)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    try {
+      await navigator.clipboard.writeText(message.content)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard API unavailable or denied — fail silently
+    }
   }
 
   const markdownComponents: Components = {

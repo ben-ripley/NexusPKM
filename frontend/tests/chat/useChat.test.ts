@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderHook, act } from '@testing-library/react'
+import { act } from '@testing-library/react'
 import { useChatStore } from '@/stores/chat'
 
 type WsHandler = (event: MessageEvent | CloseEvent | Event) => void

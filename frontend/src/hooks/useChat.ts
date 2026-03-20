@@ -197,6 +197,8 @@ export function useChat() {
     isConnected,
     streamingContent,
     suggestions,
+    isLoadingSessions: sessionsQuery.isLoading,
+    sessionsError: sessionsQuery.error,
     sendMessage,
     newSession,
     loadSession,
