@@ -33,6 +33,7 @@ export default function ConnectorSettings() {
     mutationFn: (name: string) => triggerConnectorSync(name),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connectors', 'status'] }),
   })
+  const syncingName = syncMutation.isPending ? syncMutation.variables : null
 
   return (
     <div className="rounded-lg border bg-card p-6">
@@ -67,11 +68,11 @@ export default function ConnectorSettings() {
                       size="sm"
                       variant="outline"
                       className="h-7 gap-1 px-2 text-xs"
-                      disabled={syncMutation.isPending}
+                      disabled={syncingName === c.name}
                       onClick={() => syncMutation.mutate(c.name)}
                       aria-label={`Sync ${c.name}`}
                     >
-                      <RefreshCw className={cn('size-3', syncMutation.isPending && 'animate-spin')} />
+                      <RefreshCw className={cn('size-3', syncingName === c.name && 'animate-spin')} />
                       Sync
                     </Button>
                   </div>

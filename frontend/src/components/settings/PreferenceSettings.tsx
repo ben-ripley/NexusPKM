@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Monitor, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -5,7 +6,7 @@ import { useThemeStore } from '@/stores/theme'
 import type { Theme } from '@/stores/theme'
 import { usePreferencesStore } from '@/stores/preferences'
 
-const THEME_OPTIONS: { value: Theme; label: string; icon: React.ReactNode }[] = [
+const THEME_OPTIONS: { value: Theme; label: string; icon: ReactNode }[] = [
   { value: 'light', label: 'Light', icon: <Sun className="size-4" /> },
   { value: 'dark', label: 'Dark', icon: <Moon className="size-4" /> },
   { value: 'system', label: 'System', icon: <Monitor className="size-4" /> },
