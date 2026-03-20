@@ -5,7 +5,7 @@ import {
   fetchSuggestions,
   fetchSearchFacets,
 } from '@/services/api'
-import type { SearchFilters, SearchResult, SearchFacets } from '@/services/api'
+import type { SearchFilters, SearchRequest, SearchResponse } from '@/services/api'
 
 function useDebounce<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState<T>(value)
@@ -21,7 +21,9 @@ export function useSearch() {
   const [filters, setFilters] = useState<SearchFilters>({})
   const debouncedQuery = useDebounce(query, 300)
 
-  const searchMutation = useMutation({ mutationFn: searchDocuments })
+  const searchMutation = useMutation<SearchResponse, Error, SearchRequest>({
+    mutationFn: searchDocuments,
+  })
 
   const suggestQuery = useQuery({
     queryKey: ['search-suggest', debouncedQuery],
@@ -49,8 +51,8 @@ export function useSearch() {
     setQuery,
     filters,
     setFilters,
-    results: (searchMutation.data?.results ?? []) as SearchResult[],
-    facets: (searchMutation.data?.facets ?? null) as SearchFacets | null,
+    results: searchMutation.data?.results ?? [],
+    facets: searchMutation.data?.facets ?? null,
     totalCount: searchMutation.data?.total_count ?? 0,
     isSearching: searchMutation.isPending,
     searchError: searchMutation.error,

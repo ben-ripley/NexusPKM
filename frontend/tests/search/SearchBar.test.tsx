@@ -64,10 +64,10 @@ describe('SearchBar', () => {
         isSearching={false}
       />
     )
-    // Suggestions visible initially
-    expect(screen.getByText('Project Alpha')).toBeInTheDocument()
-    // Focus input and press Escape
+    // Focus input to show suggestions
     await user.click(screen.getByRole('textbox'))
+    expect(screen.getByText('Project Alpha')).toBeInTheDocument()
+    // Press Escape to hide suggestions
     await user.keyboard('{Escape}')
     expect(screen.queryByText('Project Alpha')).not.toBeInTheDocument()
   })
@@ -84,11 +84,14 @@ describe('SearchBar', () => {
         isSearching={false}
       />
     )
+    // Focus input to show suggestions
+    await user.click(screen.getByRole('textbox'))
     await user.click(screen.getByText('Project Alpha'))
     expect(onSearch).toHaveBeenCalledWith('Project Alpha')
   })
 
-  it('shows suggestions list when suggestions prop is non-empty', () => {
+  it('shows suggestions list when suggestions prop is non-empty', async () => {
+    const user = userEvent.setup()
     render(
       <SearchBar
         query="pro"
@@ -98,6 +101,8 @@ describe('SearchBar', () => {
         isSearching={false}
       />
     )
+    // Focus input to show suggestions
+    await user.click(screen.getByRole('textbox'))
     expect(screen.getByText('Project Alpha')).toBeInTheDocument()
     expect(screen.getByText('Project Beta')).toBeInTheDocument()
   })

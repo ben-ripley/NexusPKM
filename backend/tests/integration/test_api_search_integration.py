@@ -6,7 +6,6 @@ Spec: F-007
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -101,13 +100,13 @@ def test_empty_kb_returns_empty_response(client: TestClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_ingest_then_search_finds_document(
+async def test_ingest_then_search_finds_document(
     client: TestClient, knowledge_index: KnowledgeIndex
 ) -> None:
     doc_payload = _make_doc(
         "doc-search-1", "obsidian_note", "Meeting Notes", "meeting notes about project"
     )
-    asyncio.run(knowledge_index.insert(Document.model_validate(doc_payload)))
+    await knowledge_index.insert(Document.model_validate(doc_payload))
 
     response = client.post("/api/search", json={"query": "meeting notes"})
     assert response.status_code == 200

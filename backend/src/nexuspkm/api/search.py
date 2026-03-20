@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter
-from typing import Annotated
+from typing import Annotated, Final
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -39,14 +39,19 @@ log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
-# Node tables queried for autocomplete suggestions.
-_SUGGEST_TABLES: list[tuple[str, str]] = [
-    ("Person", "name"),
-    ("Project", "name"),
-    ("Topic", "name"),
+# Hardcoded Cypher queries for autocomplete — one per node table.
+# Using explicit literals avoids any f-string interpolation into Cypher.
+# Only the $prefix value is user-supplied and is passed as a parameter.
+_SUGGEST_QUERIES: Final[list[str]] = [
+    "MATCH (n:Person) WHERE toLower(n.name) STARTS WITH toLower($prefix)"
+    " RETURN n.name AS name LIMIT 10",
+    "MATCH (n:Project) WHERE toLower(n.name) STARTS WITH toLower($prefix)"
+    " RETURN n.name AS name LIMIT 10",
+    "MATCH (n:Topic) WHERE toLower(n.name) STARTS WITH toLower($prefix)"
+    " RETURN n.name AS name LIMIT 10",
 ]
 
-_ALL_SOURCE_TYPES: list[str] = [st.value for st in SourceType]
+_ALL_SOURCE_TYPES: Final[list[str]] = [st.value for st in SourceType]
 
 
 # ---------------------------------------------------------------------------
@@ -103,13 +108,14 @@ def _source_to_result(source: SourceAttribution) -> SearchResult:
 
 
 def _build_facets(result: RetrievalResult) -> SearchFacets:
-    # source_types: count chunks per SourceType
-    source_type_counts: Counter[SourceType] = Counter(c.source_type for c in result.chunks)
-
-    # date_histogram: group chunks by calendar month, sorted ascending
+    # Single pass over chunks to compute source type counts and date histogram.
+    # ChunkResult.created_at is a required AwareDatetime field and is never None.
+    source_type_counts: Counter[SourceType] = Counter()
     month_counts: Counter[str] = Counter()
     month_datetimes: dict[str, DateBucket] = {}
+
     for chunk in result.chunks:
+        source_type_counts[chunk.source_type] += 1
         dt = chunk.created_at
         month_key = f"{dt.year}-{dt.month:02d}"
         month_counts[month_key] += 1
@@ -163,25 +169,21 @@ async def suggest(
     try:
         return await loop.run_in_executor(None, _suggest_sync, graph_store, q)
     except Exception:
-        log.warning("search.suggest_failed", prefix=q)
+        log.warning("search.suggest_failed", prefix=q, exc_info=True)
         return []
 
 
 def _suggest_sync(graph_store: GraphStore, prefix: str) -> list[str]:
     names: set[str] = set()
-    for table, name_field in _SUGGEST_TABLES:
+    for query in _SUGGEST_QUERIES:
         try:
-            rows = graph_store.execute(
-                f"MATCH (n:{table}) WHERE toLower(n.{name_field}) STARTS WITH toLower($prefix)"
-                f" RETURN n.{name_field} AS name LIMIT 10",
-                {"prefix": prefix},
-            )
+            rows = graph_store.execute(query, {"prefix": prefix})
             for row in rows:
                 val = row.get("name")
                 if val:
                     names.add(str(val))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            log.debug("search.suggest_query_failed", prefix=prefix, error=str(exc))
     return sorted(names)[:10]
 
 
@@ -190,7 +192,7 @@ def _suggest_sync(graph_store: GraphStore, prefix: str) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-@router.get("/facets")
+@router.get("/facets", response_model=dict[str, list[str]])
 async def facets() -> dict[str, list[str]]:
     """Return available facet values for the filter sidebar.
 

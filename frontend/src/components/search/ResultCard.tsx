@@ -83,8 +83,8 @@ export default function ResultCard({ result, index }: ResultCardProps) {
         <div className="mt-3 border-t pt-3">
           <p className="mb-1 text-xs font-medium text-muted-foreground">Entities</p>
           <div className="flex flex-wrap gap-1">
-            {result.matched_entities.map((e) => (
-              <Badge key={`${e.name}-${e.entity_type}`} variant="outline" className="text-xs">
+            {result.matched_entities.map((e, i) => (
+              <Badge key={`${e.name}-${e.entity_type}-${i}`} variant="outline" className="text-xs">
                 {e.name} ({e.entity_type})
               </Badge>
             ))}

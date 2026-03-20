@@ -65,6 +65,11 @@ export default function SearchFiltersPanel({
             <input
               type="date"
               aria-label="From"
+              value={
+                filters.date_from
+                  ? new Date(filters.date_from).toISOString().slice(0, 10)
+                  : ''
+              }
               className="rounded-md border bg-background px-2 py-1 text-xs"
               onChange={(e) => handleDateFrom(e.target.value)}
             />
@@ -74,6 +79,11 @@ export default function SearchFiltersPanel({
             <input
               type="date"
               aria-label="To"
+              value={
+                filters.date_to
+                  ? new Date(filters.date_to).toISOString().slice(0, 10)
+                  : ''
+              }
               className="rounded-md border bg-background px-2 py-1 text-xs"
               onChange={(e) => handleDateTo(e.target.value)}
             />

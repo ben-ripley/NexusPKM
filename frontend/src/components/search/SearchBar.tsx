@@ -19,7 +19,7 @@ export default function SearchBar({
   isSearching,
   className,
 }: SearchBarProps) {
-  const [showSuggestions, setShowSuggestions] = useState(true)
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const inputRef = useRef<HTMLInputElement>(null)
 

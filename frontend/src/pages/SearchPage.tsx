@@ -34,7 +34,7 @@ export default function SearchPage() {
           <SearchBar
             query={query}
             onQueryChange={setQuery}
-            onSearch={(q) => search(q)}
+            onSearch={search}
             suggestions={suggestions}
             isSearching={isSearching}
           />
