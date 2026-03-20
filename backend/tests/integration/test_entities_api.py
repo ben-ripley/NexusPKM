@@ -205,16 +205,8 @@ def test_list_contradictions_empty(client: TestClient) -> None:
 def test_list_contradictions_returns_unresolved(
     client: TestClient, contradiction_detector: ContradictionDetector
 ) -> None:
-    # Directly insert a contradiction into the DB
+    # Insert directly via SQL — schema already created by fixture's detector.init()
     conn = sqlite3.connect(contradiction_detector.db_path)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS contradictions ("
-        "id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, "
-        "field_name TEXT NOT NULL, old_value TEXT NOT NULL, "
-        "new_value TEXT NOT NULL, source_doc_id TEXT NOT NULL, "
-        "detected_at TEXT NOT NULL, resolved INTEGER NOT NULL DEFAULT 0, "
-        "resolved_at TEXT, contradiction_type TEXT NOT NULL DEFAULT 'status_conflict')"
-    )
     conn.execute(
         "INSERT INTO contradictions VALUES (?,?,?,?,?,?,?,?,?,?)",
         (
@@ -248,15 +240,8 @@ def test_list_contradictions_returns_unresolved(
 def test_resolve_contradiction(
     client: TestClient, contradiction_detector: ContradictionDetector
 ) -> None:
+    # Insert directly via SQL — schema already created by fixture's detector.init()
     conn = sqlite3.connect(contradiction_detector.db_path)
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS contradictions ("
-        "id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, "
-        "field_name TEXT NOT NULL, old_value TEXT NOT NULL, "
-        "new_value TEXT NOT NULL, source_doc_id TEXT NOT NULL, "
-        "detected_at TEXT NOT NULL, resolved INTEGER NOT NULL DEFAULT 0, "
-        "resolved_at TEXT, contradiction_type TEXT NOT NULL DEFAULT 'status_conflict')"
-    )
     conn.execute(
         "INSERT INTO contradictions VALUES (?,?,?,?,?,?,?,?,?,?)",
         (

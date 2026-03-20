@@ -42,13 +42,6 @@ _STATUS_FIELDS = frozenset({"status"})
 _ASSIGNMENT_FIELDS = frozenset({"assignee_id", "assignee", "owner_id", "owner"})
 
 
-class _ContradictionResult(Contradiction):
-    """Internal model that carries contradiction_type before persistence."""
-
-    model_config = Contradiction.model_config
-    contradiction_type: ContradictionType = ContradictionType.STATUS_CONFLICT
-
-
 class ContradictionDetector:
     """Detect and persist contradictions between incoming and existing entity data."""
 
@@ -79,9 +72,9 @@ class ContradictionDetector:
         existing_properties: dict[str, Any],
         new_properties: dict[str, Any],
         source_doc_id: str,
-    ) -> list[_ContradictionResult]:
+    ) -> list[Contradiction]:
         """Compare new_properties against existing_properties and return contradictions."""
-        contradictions: list[_ContradictionResult] = []
+        contradictions: list[Contradiction] = []
         now = datetime.now(tz=UTC)
 
         for field, new_value in new_properties.items():
@@ -96,7 +89,7 @@ class ContradictionDetector:
                 continue
 
             contradictions.append(
-                _ContradictionResult(
+                Contradiction(
                     id=str(uuid.uuid4()),
                     entity_id=entity_id,
                     field_name=field,
@@ -124,14 +117,14 @@ class ContradictionDetector:
     # Persistence
     # ------------------------------------------------------------------
 
-    async def persist(self, contradictions: list[_ContradictionResult]) -> None:
+    async def persist(self, contradictions: list[Contradiction]) -> None:
         """Write contradictions to SQLite."""
         if not contradictions:
             return
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._persist_sync, contradictions)
 
-    def _persist_sync(self, contradictions: list[_ContradictionResult]) -> None:
+    def _persist_sync(self, contradictions: list[Contradiction]) -> None:
         with sqlite3.connect(self._db_path) as conn:
             for c in contradictions:
                 conn.execute(
@@ -158,17 +151,17 @@ class ContradictionDetector:
     # Querying
     # ------------------------------------------------------------------
 
-    async def list_unresolved(self) -> list[_ContradictionResult]:
+    async def list_unresolved(self) -> list[Contradiction]:
         """Return all unresolved contradictions."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._list_sync, True)
 
-    async def list_all(self) -> list[_ContradictionResult]:
+    async def list_all(self) -> list[Contradiction]:
         """Return all contradictions (resolved and unresolved)."""
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._list_sync, None)
 
-    def _list_sync(self, only_unresolved: bool | None) -> list[_ContradictionResult]:
+    def _list_sync(self, only_unresolved: bool | None) -> list[Contradiction]:
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
             if only_unresolved is True:
@@ -182,8 +175,8 @@ class ContradictionDetector:
         return [self._row_to_contradiction(r) for r in rows]
 
     @staticmethod
-    def _row_to_contradiction(row: sqlite3.Row) -> _ContradictionResult:
-        return _ContradictionResult(
+    def _row_to_contradiction(row: sqlite3.Row) -> Contradiction:
+        return Contradiction(
             id=row["id"],
             entity_id=row["entity_id"],
             field_name=row["field_name"],

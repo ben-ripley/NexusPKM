@@ -26,6 +26,7 @@ class Contradiction(BaseModel):
     new_value: str
     source_doc_id: str
     detected_at: AwareDatetime
+    contradiction_type: ContradictionType = ContradictionType.STATUS_CONFLICT
     resolved: bool = False
     resolved_at: AwareDatetime | None = None
 

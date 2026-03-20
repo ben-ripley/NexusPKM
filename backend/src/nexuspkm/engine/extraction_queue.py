@@ -207,7 +207,10 @@ class ExtractionQueue:
     async def _reschedule(
         self, row_id: str, retry_count: int, error: str, backoff_secs: float
     ) -> None:
-        await asyncio.sleep(backoff_secs)
+        # Use shutdown.wait() with a timeout so stop() is honoured promptly
+        # even while a worker is waiting out its backoff delay.
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._shutdown.wait(), timeout=backoff_secs)
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(
             None,
