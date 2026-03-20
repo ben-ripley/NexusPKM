@@ -21,6 +21,8 @@ from nexuspkm.api.entities import router as entities_router
 from nexuspkm.api.obsidian import router as obsidian_router
 from nexuspkm.api.providers import get_registry
 from nexuspkm.api.providers import router as providers_router
+from nexuspkm.api.search import get_graph_store as search_get_graph_store
+from nexuspkm.api.search import router as search_router
 from nexuspkm.config.loader import load_config
 from nexuspkm.connectors.registry import ConnectorRegistry
 from nexuspkm.connectors.scheduler import SyncScheduler
@@ -91,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_graph_store] = lambda: _graph_store
     app.dependency_overrides[get_extraction_queue] = lambda: _extraction_queue
     app.dependency_overrides[get_contradiction_detector] = lambda: _contradiction_detector
+    app.dependency_overrides[search_get_graph_store] = lambda: _graph_store
 
     llm_provider = _registry.get_llm()
     _extractor = EntityExtractor(llm_provider)
@@ -205,6 +208,7 @@ app.include_router(obsidian_router)
 app.include_router(generic_connectors_router)
 app.include_router(entities_router)
 app.include_router(chat_router)
+app.include_router(search_router)
 
 
 @app.get("/health")
