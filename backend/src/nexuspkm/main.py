@@ -180,6 +180,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _sync_scheduler.shutdown()
     if _extraction_queue is not None:
         await _extraction_queue.stop()
+    if _chat_service is not None:
+        await _chat_service.close()
     if _vector_store:
         await _vector_store.close()
     if _graph_store:

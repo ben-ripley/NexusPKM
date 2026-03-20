@@ -6,6 +6,7 @@ Spec: F-005
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator, Generator
 from unittest.mock import AsyncMock, MagicMock
 
@@ -50,8 +51,11 @@ def _make_chat_service(tmp_path_factory: pytest.TempPathFactory) -> ChatService:
     llm = MagicMock()
 
     async def _fake_stream(messages: list[dict[str, str]], **kwargs: object) -> AsyncIterator[str]:
-        for token in ["Hello", " world"]:
-            yield token
+        async def _gen() -> AsyncIterator[str]:
+            for token in ["Hello", " world"]:
+                yield token
+
+        return _gen()
 
     llm.stream = AsyncMock(side_effect=_fake_stream)
     llm.generate = AsyncMock(return_value=MagicMock(content='["Follow up?"]'))
@@ -62,11 +66,11 @@ def _make_chat_service(tmp_path_factory: pytest.TempPathFactory) -> ChatService:
 @pytest.fixture
 def chat_client(tmp_path_factory: pytest.TempPathFactory) -> Generator[TestClient, None, None]:
     svc = _make_chat_service(tmp_path_factory)
-    import asyncio
-
     loop = asyncio.new_event_loop()
-    loop.run_until_complete(svc.init())
-    loop.close()
+    try:
+        loop.run_until_complete(svc.init())
+    finally:
+        loop.close()
     app.dependency_overrides[get_chat_service] = lambda: svc
     try:
         yield TestClient(app)

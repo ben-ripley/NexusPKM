@@ -7,7 +7,10 @@ Spec: F-005
 
 from __future__ import annotations
 
+import sqlite3
+import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -51,8 +54,11 @@ def _make_service(tmp_path: Path) -> tuple[ChatService, MagicMock, MagicMock]:
     llm = MagicMock()
 
     async def _fake_stream(messages: list[dict[str, str]], **kwargs: object) -> AsyncIterator[str]:
-        for token in ["Hello", " world"]:
-            yield token
+        async def _gen() -> AsyncIterator[str]:
+            for token in ["Hello", " world"]:
+                yield token
+
+        return _gen()
 
     llm.stream = AsyncMock(side_effect=_fake_stream)
     llm.generate = AsyncMock(
@@ -108,12 +114,29 @@ async def test_get_session_returns_none_for_missing(svc: ChatService) -> None:
 
 
 @pytest.mark.asyncio
-async def test_list_sessions_returns_newest_first(svc: ChatService) -> None:
-    s1 = await svc.create_session("First session")
-    s2 = await svc.create_session("Second session")
-    sessions = await svc.list_sessions()
+async def test_list_sessions_returns_newest_first(tmp_path: Path) -> None:
+    # Use explicit timestamps far enough apart to avoid sub-millisecond collisions.
+    service, _, _ = _make_service(tmp_path)
+    await service.init()
+    s1 = await service.create_session("First session")
+    # Insert s2 with a timestamp 1 second later via direct DB write so ordering is deterministic.
+    s2_id = str(uuid.uuid4())
+    s2_ts = (
+        datetime.fromisoformat(s1.created_at.isoformat())
+        .replace(second=s1.created_at.second + 1)
+        .isoformat()
+    )
+    conn = sqlite3.connect(str(tmp_path / "chat.db"))
+    conn.execute(
+        "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?,?,?,?)",
+        (s2_id, "Second session", s2_ts, s2_ts),
+    )
+    conn.commit()
+    conn.close()
+
+    sessions = await service.list_sessions()
     assert len(sessions) == 2
-    assert sessions[0].id == s2.id
+    assert sessions[0].id == s2_id
     assert sessions[1].id == s1.id
     # Metadata only: no messages
     assert sessions[0].messages == []
@@ -215,11 +238,6 @@ async def test_process_query_context_window_last_10_messages(
     for i in range(15):
         role = "user" if i % 2 == 0 else "assistant"
         content = f"Message {i}"
-        # Directly insert via sync method to populate the DB
-        import sqlite3
-        import uuid
-        from datetime import UTC, datetime
-
         conn = sqlite3.connect(str(tmp_path / "chat.db"))
         conn.execute("PRAGMA foreign_keys = ON")
         msg_id = str(uuid.uuid4())

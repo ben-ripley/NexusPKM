@@ -14,7 +14,7 @@ import asyncio
 import json
 import sqlite3
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -70,6 +70,10 @@ class ChatService:
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._init_sync)
 
+    async def close(self) -> None:
+        """Release resources. SQLite connections are opened per-request so no teardown needed."""
+        logger.info("chat_service.closed")
+
     def _init_sync(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         with sqlite3.connect(self._db_path) as conn:
@@ -86,7 +90,7 @@ class ChatService:
 
     def _create_session_sync(self, first_message: str) -> ChatSession:
         session_id = str(uuid.uuid4())
-        title = first_message[:50]
+        title = first_message.strip()[:50]
         now = datetime.now(tz=UTC)
         now_iso = now.isoformat()
         with sqlite3.connect(self._db_path) as conn:
@@ -119,7 +123,7 @@ class ChatService:
             sid, title, created_at, updated_at = row
             msg_rows = conn.execute(
                 "SELECT id, role, content, sources_json, timestamp FROM messages "
-                "WHERE session_id=? ORDER BY timestamp ASC",
+                "WHERE session_id=? ORDER BY timestamp ASC, rowid ASC",
                 (session_id,),
             ).fetchall()
 
@@ -172,14 +176,17 @@ class ChatService:
     def _delete_session_sync(self, session_id: str) -> bool:
         with sqlite3.connect(self._db_path) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
-            cursor = conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
-            return cursor.rowcount > 0
+            conn.execute("DELETE FROM sessions WHERE id=?", (session_id,))
+            changes: int = conn.execute("SELECT changes()").fetchone()[0]
+            return changes > 0
 
     # ------------------------------------------------------------------
     # Query processing
     # ------------------------------------------------------------------
 
-    async def process_query(self, session_id: str, query: str) -> AsyncIterator[dict[str, object]]:
+    async def process_query(
+        self, session_id: str, query: str
+    ) -> AsyncGenerator[dict[str, object], None]:
         """Process a user query, yielding wire-protocol frames."""
         # Search mode: no LLM
         if query.startswith("/search ") or query.startswith("/graph "):
@@ -193,7 +200,7 @@ class ChatService:
         async for frame in self._rag_mode(session_id, query):
             yield frame
 
-    async def _search_mode(self, query: str) -> AsyncIterator[dict[str, object]]:
+    async def _search_mode(self, query: str) -> AsyncGenerator[dict[str, object], None]:
         result = await self._retriever.retrieve(query, top_k=5)
         yield {
             "type": "sources",
@@ -201,7 +208,9 @@ class ChatService:
         }
         yield {"type": "done"}
 
-    async def _rag_mode(self, session_id: str, query: str) -> AsyncIterator[dict[str, object]]:
+    async def _rag_mode(
+        self, session_id: str, query: str
+    ) -> AsyncGenerator[dict[str, object], None]:
         # 1. Load prior messages (last N)
         prior_messages = await self._load_prior_messages(session_id)
 
@@ -248,7 +257,7 @@ class ChatService:
         with sqlite3.connect(self._db_path) as conn:
             rows = conn.execute(
                 "SELECT role, content FROM messages "
-                "WHERE session_id=? ORDER BY timestamp DESC LIMIT ?",
+                "WHERE session_id=? ORDER BY timestamp DESC, rowid DESC LIMIT ?",
                 (session_id, _CONTEXT_WINDOW),
             ).fetchall()
         # Reverse to chronological order
@@ -273,7 +282,7 @@ class ChatService:
             response = await self._llm.generate(messages)
             result: list[str] = json.loads(response.content)
             return result
-        except (json.JSONDecodeError, TypeError, KeyError):
+        except Exception:
             return []
 
     async def _persist_messages(

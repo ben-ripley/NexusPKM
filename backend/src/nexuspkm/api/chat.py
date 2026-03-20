@@ -122,11 +122,14 @@ async def websocket_chat(
                 await websocket.send_json({"type": "error", "message": "expected type=query"})
                 continue
             query = data.get("content", "")
+            if not query or not query.strip():
+                await websocket.send_json({"type": "error", "message": "query content is required"})
+                continue
             try:
                 async for frame in svc.process_query(session_id, query):
                     await websocket.send_json(frame)
             except Exception as exc:
                 logger.warning("websocket.query_error", error=str(exc))
-                await websocket.send_json({"type": "error", "message": str(exc)})
+                await websocket.send_json({"type": "error", "message": "query processing failed"})
     except WebSocketDisconnect:
         pass
