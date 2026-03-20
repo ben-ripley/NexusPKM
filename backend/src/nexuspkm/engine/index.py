@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
+from typing import TYPE_CHECKING
 
 import structlog
 
@@ -22,6 +23,9 @@ from nexuspkm.engine.vector_store import VectorStore
 from nexuspkm.models.document import Document, RetrievalResult
 from nexuspkm.models.search import SearchFilters
 from nexuspkm.providers.base import BaseEmbeddingProvider
+
+if TYPE_CHECKING:
+    from nexuspkm.engine.extraction_queue import ExtractionQueue
 
 logger = structlog.get_logger(__name__)
 
@@ -59,6 +63,7 @@ class KnowledgeIndex:
         graph_store: GraphStore,
         embedding_provider: BaseEmbeddingProvider,
         chunker: DocumentChunker | None = None,
+        extraction_queue: ExtractionQueue | None = None,
     ) -> None:
         self._vector_store = vector_store
         self._graph_store = graph_store
@@ -66,6 +71,7 @@ class KnowledgeIndex:
         # across concurrent ingest, retrieval, and stats operations.
         _graph_lock = threading.Lock()
         self._graph_lock = _graph_lock
+        self._extraction_queue = extraction_queue
         self._pipeline = IngestionPipeline(
             vector_store, graph_store, embedding_provider, chunker, graph_lock=_graph_lock
         )
@@ -73,9 +79,17 @@ class KnowledgeIndex:
             vector_store, graph_store, embedding_provider, graph_lock=_graph_lock
         )
 
+    @property
+    def graph_lock(self) -> threading.Lock:
+        """Shared Kuzu connection lock — passed to co-located services (e.g. EntityDeduplicator)."""
+        return self._graph_lock
+
     async def insert(self, document: Document) -> Document:
-        """Ingest a document into both stores."""
-        return await self._pipeline.ingest(document)
+        """Ingest a document into both stores, then enqueue for entity extraction."""
+        updated = await self._pipeline.ingest(document)
+        if self._extraction_queue is not None:
+            await self._extraction_queue.enqueue(updated)
+        return updated
 
     async def delete(self, document_id: str) -> None:
         """Remove document from both stores."""
