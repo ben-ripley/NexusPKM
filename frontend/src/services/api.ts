@@ -209,3 +209,66 @@ export async function triggerConnectorSync(name: string): Promise<void> {
   })
   if (!res.ok) throw new Error(`Failed to trigger sync for ${name}: ${res.status}`)
 }
+
+// ---------------------------------------------------------------------------
+// Graph schemas (F-008 graph explorer)
+// ---------------------------------------------------------------------------
+
+const GraphEntitySchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  entity_type: z.string(),
+  source_type: z.string(),
+  created_at: z.string(),
+})
+
+const GraphRelationshipSchema = z.object({
+  id: z.string().min(1),
+  source_entity_id: z.string().min(1),
+  target_entity_id: z.string().min(1),
+  relationship_type: z.string(),
+  properties: z.record(z.string(), z.unknown()),
+})
+
+const GraphEntityDetailSchema = GraphEntitySchema.extend({
+  properties: z.record(z.string(), z.unknown()),
+  relationships: z.array(GraphRelationshipSchema),
+})
+
+// ---------------------------------------------------------------------------
+// Graph exported types
+// ---------------------------------------------------------------------------
+
+export type GraphEntity = z.infer<typeof GraphEntitySchema>
+export type GraphRelationship = z.infer<typeof GraphRelationshipSchema>
+export type GraphEntityDetail = z.infer<typeof GraphEntityDetailSchema>
+
+// ---------------------------------------------------------------------------
+// Graph API functions
+// ---------------------------------------------------------------------------
+
+export async function fetchEntities(type?: string, name?: string): Promise<GraphEntity[]> {
+  const params = new URLSearchParams()
+  if (type) params.set('entity_type', type)
+  if (name) params.set('name', name)
+  const query = params.toString()
+  const res = await fetch(`${API}/api/entities${query ? `?${query}` : ''}`)
+  if (!res.ok) throw new Error(`Failed to fetch entities: ${res.status}`)
+  return z.array(GraphEntitySchema).parse(await res.json())
+}
+
+export async function fetchEntityDetail(id: string): Promise<GraphEntityDetail> {
+  const res = await fetch(`${API}/api/entities/${encodeURIComponent(id)}`)
+  if (!res.ok) throw new Error(`Failed to fetch entity detail: ${res.status}`)
+  return GraphEntityDetailSchema.parse(await res.json())
+}
+
+export async function fetchRelationships(type?: string, entityId?: string): Promise<GraphRelationship[]> {
+  const params = new URLSearchParams()
+  if (type) params.set('relationship_type', type)
+  if (entityId) params.set('entity_id', entityId)
+  const query = params.toString()
+  const res = await fetch(`${API}/api/relationships${query ? `?${query}` : ''}`)
+  if (!res.ok) throw new Error(`Failed to fetch relationships: ${res.status}`)
+  return z.array(GraphRelationshipSchema).parse(await res.json())
+}
