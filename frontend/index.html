@@ -16,7 +16,9 @@
             (theme !== 'light' &&
               window.matchMedia('(prefers-color-scheme: dark)').matches);
           if (isDark) document.documentElement.classList.add('dark');
-        } catch (e) {}
+        } catch (e) {
+          console.warn('NexusPKM: failed to read theme from localStorage', e);
+        }
       })();
     </script>
   </head>

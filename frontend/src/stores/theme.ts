@@ -42,11 +42,15 @@ export const useThemeStore = create<ThemeState>()(
       name: 'nexuspkm-theme',
       partialize: (state) => ({ theme: state.theme }),
       onRehydrateStorage: () => {
-        return (state) => {
+        return (state, error) => {
+          if (error) {
+            console.warn('NexusPKM: failed to rehydrate theme store', error)
+            return
+          }
           if (state) {
             const resolved = resolveTheme(state.theme)
             applyTheme(resolved)
-            state.resolvedTheme = resolved
+            useThemeStore.setState({ resolvedTheme: resolved })
           }
         }
       },

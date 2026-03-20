@@ -5,6 +5,7 @@ describe('App', () => {
   it('renders without crashing', async () => {
     const { default: App } = await import('../src/App')
     render(<App />)
-    expect(screen.getByText('NexusPKM')).toBeInTheDocument()
+    // Query something always visible regardless of viewport (not hidden sidebar text)
+    expect(screen.getByPlaceholderText('Search knowledge base...')).toBeInTheDocument()
   })
 })

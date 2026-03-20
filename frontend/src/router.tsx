@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom'
 import { AppShell } from '@/components/layout/AppShell'
+import { ErrorFallback } from '@/components/layout/ErrorFallback'
 import DashboardPage from '@/pages/DashboardPage'
 import ChatPage from '@/pages/ChatPage'
 import SearchPage from '@/pages/SearchPage'
@@ -10,6 +11,7 @@ import NotFoundPage from '@/pages/NotFoundPage'
 export const router = createBrowserRouter([
   {
     element: <AppShell />,
+    errorElement: <ErrorFallback />,
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'chat', element: <ChatPage /> },
