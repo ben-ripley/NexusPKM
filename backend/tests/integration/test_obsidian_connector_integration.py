@@ -7,6 +7,7 @@ NXP-49
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -179,19 +180,16 @@ async def test_incremental_only_modified_file_returned(vault: Path, tmp_path: Pa
 async def test_incremental_modified_file_returned(vault: Path, tmp_path: Path) -> None:
     connector = _make_connector(vault, tmp_path)
 
-    # First scan
-    await connector.fetch().__anext__()  # consume at least one
-    _ = [doc async for doc in connector.fetch()]  # drain remaining
+    # First scan — exhaust the generator so file state is fully persisted
+    _ = [doc async for doc in connector.fetch()]
 
     # Modify note-7
     note7 = vault / "note-7.md"
     note7.write_text("Updated content for note seven.")
-    # Force mtime change
-    import os
-    import time
-
-    time.sleep(0.01)
-    os.utime(note7, None)
+    # Force mtime to a clearly different value (add 2 s) to avoid sub-second
+    # resolution issues on network / FAT filesystems.
+    new_mtime = note7.stat().st_mtime + 2.0
+    os.utime(note7, (new_mtime, new_mtime))
 
     modified_docs = [doc async for doc in connector.fetch()]
     assert len(modified_docs) == 1

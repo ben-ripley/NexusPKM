@@ -10,6 +10,7 @@ from __future__ import annotations
 import datetime
 import uuid
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 from nexuspkm.config.models import ObsidianConnectorConfig
 from nexuspkm.connectors.obsidian.connector import ObsidianNotesConnector, _ObsidianFileEntry
@@ -278,3 +279,178 @@ async def test_fetch_deleted_ids_empty_state(tmp_path: Path) -> None:
     connector = _make_connector(tmp_path)
     deleted_ids = await connector.fetch_deleted_ids()
     assert deleted_ids == []
+
+
+# ---------------------------------------------------------------------------
+# Public properties
+# ---------------------------------------------------------------------------
+
+
+def test_vault_path_property(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    connector = _make_connector(tmp_path, vault_path=vault)
+    assert connector.vault_path == vault
+
+
+def test_watcher_running_false_initially(tmp_path: Path) -> None:
+    connector = _make_connector(tmp_path)
+    assert connector.watcher_running is False
+
+
+# ---------------------------------------------------------------------------
+# update_sync_interval
+# ---------------------------------------------------------------------------
+
+
+def test_update_sync_interval(tmp_path: Path) -> None:
+    connector = _make_connector(tmp_path)
+    connector.update_sync_interval(42)
+    assert connector._config.sync_interval_minutes == 42
+
+
+def test_update_sync_interval_preserves_other_fields(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    connector = _make_connector(tmp_path, vault_path=vault)
+    original_vault = connector._config.vault_path
+    original_patterns = connector._config.exclude_patterns
+    connector.update_sync_interval(10)
+    assert connector._config.vault_path == original_vault
+    assert connector._config.exclude_patterns == original_patterns
+
+
+# ---------------------------------------------------------------------------
+# start_watching / stop_watching
+# ---------------------------------------------------------------------------
+
+
+async def test_start_watching_creates_task(tmp_path: Path) -> None:
+    connector = _make_connector(tmp_path)
+    on_upsert: AsyncMock = AsyncMock()
+    on_delete: AsyncMock = AsyncMock()
+    await connector.start_watching(on_upsert, on_delete)
+    assert connector.watcher_running is True
+    await connector.stop_watching()
+
+
+async def test_start_watching_idempotent(tmp_path: Path) -> None:
+    connector = _make_connector(tmp_path)
+    on_upsert: AsyncMock = AsyncMock()
+    on_delete: AsyncMock = AsyncMock()
+    await connector.start_watching(on_upsert, on_delete)
+    task1 = connector._watcher_task
+    await connector.start_watching(on_upsert, on_delete)  # second call is no-op
+    assert connector._watcher_task is task1
+    await connector.stop_watching()
+
+
+async def test_stop_watching_clears_task(tmp_path: Path) -> None:
+    connector = _make_connector(tmp_path)
+    on_upsert: AsyncMock = AsyncMock()
+    on_delete: AsyncMock = AsyncMock()
+    await connector.start_watching(on_upsert, on_delete)
+    await connector.stop_watching()
+    assert connector.watcher_running is False
+
+
+async def test_stop_watching_noop_when_not_started(tmp_path: Path) -> None:
+    connector = _make_connector(tmp_path)
+    # Should not raise
+    await connector.stop_watching()
+    assert connector.watcher_running is False
+
+
+# ---------------------------------------------------------------------------
+# _handle_upsert / _handle_delete
+# ---------------------------------------------------------------------------
+
+
+async def test_handle_upsert_calls_on_upsert(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = vault / "test.md"
+    note.write_text("Content.")
+    connector = _make_connector(tmp_path, vault_path=vault)
+    on_upsert: AsyncMock = AsyncMock()
+    await connector._handle_upsert(note, on_upsert)
+    on_upsert.assert_awaited_once()
+    assert connector._total_docs_synced == 1
+
+
+async def test_handle_upsert_does_not_raise_on_bad_file(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    missing = vault / "nonexistent.md"
+    connector = _make_connector(tmp_path, vault_path=vault)
+    on_upsert: AsyncMock = AsyncMock()
+    # Should log a warning and not raise
+    await connector._handle_upsert(missing, on_upsert)
+    on_upsert.assert_not_awaited()
+
+
+async def test_handle_delete_calls_on_delete_and_updates_state(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = vault / "to-delete.md"
+    note.write_text("Content.")
+    connector = _make_connector(tmp_path, vault_path=vault)
+
+    entry: _ObsidianFileEntry = {"doc_id": "del-uuid", "mtime": 1.0, "content_hash": "h"}
+    await connector._save_file_state({"to-delete.md": entry})
+
+    on_delete: AsyncMock = AsyncMock()
+    await connector._handle_delete(note, on_delete)
+
+    on_delete.assert_awaited_once_with("del-uuid")
+    remaining = await connector._load_file_state()
+    assert "to-delete.md" not in remaining
+
+
+async def test_handle_delete_noop_when_not_in_state(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = vault / "unknown.md"
+    connector = _make_connector(tmp_path, vault_path=vault)
+    on_delete: AsyncMock = AsyncMock()
+    await connector._handle_delete(note, on_delete)
+    on_delete.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# _save_file_state atomic write
+# ---------------------------------------------------------------------------
+
+
+async def test_save_file_state_is_atomic(tmp_path: Path) -> None:
+    """No .tmp file should remain after a successful save."""
+    connector = _make_connector(tmp_path)
+    entry: _ObsidianFileEntry = {"doc_id": "x", "mtime": 1.0, "content_hash": "h"}
+    await connector._save_file_state({"note.md": entry})
+    tmp_file = connector._file_state_file.with_suffix(".tmp")
+    assert not tmp_file.exists()
+    assert connector._file_state_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# fetch_deleted_ids removes stale state
+# ---------------------------------------------------------------------------
+
+
+async def test_fetch_deleted_ids_removes_stale_entries_from_state(tmp_path: Path) -> None:
+    """After fetch_deleted_ids, stale entries must not reappear on next call."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = vault / "vanishing.md"
+    note.write_text("Content.")
+    connector = _make_connector(tmp_path, vault_path=vault)
+
+    entry: _ObsidianFileEntry = {"doc_id": "gone-uuid", "mtime": 1.0, "content_hash": "h"}
+    await connector._save_file_state({"vanishing.md": entry})
+    note.unlink()
+
+    first_call = await connector.fetch_deleted_ids()
+    assert "gone-uuid" in first_call
+
+    second_call = await connector.fetch_deleted_ids()
+    assert second_call == []

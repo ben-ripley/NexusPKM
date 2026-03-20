@@ -15,7 +15,6 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from nexuspkm.config.models import ObsidianConnectorConfig
 from nexuspkm.connectors.obsidian.connector import ObsidianNotesConnector
 from nexuspkm.connectors.registry import ConnectorRegistry
 from nexuspkm.connectors.scheduler import SyncScheduler
@@ -89,8 +88,8 @@ async def get_status(
     vault_path: str | None = None
     watcher_running = False
     if isinstance(connector, ObsidianNotesConnector):
-        vault_path = str(connector._vault_path)
-        watcher_running = connector._watcher_task is not None
+        vault_path = str(connector.vault_path)
+        watcher_running = connector.watcher_running
 
     return ObsidianStatusResponse(
         status=status.status,
@@ -126,13 +125,7 @@ async def update_config(
     if not isinstance(connector, ObsidianNotesConnector):
         raise HTTPException(status_code=404, detail="Obsidian connector not configured")
 
-    connector._config = ObsidianConnectorConfig(
-        enabled=connector._config.enabled,
-        vault_path=connector._config.vault_path,
-        sync_interval_minutes=payload.sync_interval_minutes,
-        exclude_patterns=connector._config.exclude_patterns,
-        include_extensions=connector._config.include_extensions,
-    )
+    connector.update_sync_interval(payload.sync_interval_minutes)
     scheduler.reschedule_connector("obsidian", payload.sync_interval_minutes * 60)
     log.info(
         "obsidian_config_updated",

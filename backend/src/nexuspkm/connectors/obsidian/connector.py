@@ -19,7 +19,7 @@ import hashlib
 import json
 import os
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
@@ -59,6 +59,36 @@ class ObsidianNotesConnector(BaseConnector):
         self._watcher_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
+    # Public properties
+    # ------------------------------------------------------------------
+
+    @property
+    def vault_path(self) -> Path:
+        """Absolute path to the configured Obsidian vault."""
+        return self._vault_path
+
+    @property
+    def watcher_running(self) -> bool:
+        """True if the filesystem watcher background task is active."""
+        return self._watcher_task is not None
+
+    def update_sync_interval(self, minutes: int) -> None:
+        """Update the sync interval in the connector's in-memory config.
+
+        This does NOT persist the change; the scheduler must also be rescheduled.
+        The update is applied atomically by replacing the whole config object, so
+        a concurrent scheduler read sees either the old or the new config, never a
+        partially-mutated one.
+        """
+        self._config = ObsidianConnectorConfig(
+            enabled=self._config.enabled,
+            vault_path=self._config.vault_path,
+            sync_interval_minutes=minutes,
+            exclude_patterns=self._config.exclude_patterns,
+            include_extensions=self._config.include_extensions,
+        )
+
+    # ------------------------------------------------------------------
     # BaseConnector interface
     # ------------------------------------------------------------------
 
@@ -86,11 +116,12 @@ class ObsidianNotesConnector(BaseConnector):
         current_paths = {str(p.relative_to(self._vault_path)) for p in vault_files}
 
         deleted_ids: list[str] = []
-        updated_state = dict(file_state)
+        updated_state = {
+            rel_path: entry for rel_path, entry in file_state.items() if rel_path in current_paths
+        }
         for rel_path, entry in file_state.items():
             if rel_path not in current_paths:
                 deleted_ids.append(entry["doc_id"])
-                del updated_state[rel_path]
                 log.info(
                     "obsidian_connector.file_deleted",
                     path=rel_path,
@@ -153,8 +184,8 @@ class ObsidianNotesConnector(BaseConnector):
 
     async def start_watching(
         self,
-        on_upsert: Callable[[Document], Coroutine[Any, Any, Any]],
-        on_delete: Callable[[str], Coroutine[Any, Any, Any]],
+        on_upsert: Callable[[Document], Awaitable[Any]],
+        on_delete: Callable[[str], Awaitable[None]],
     ) -> None:
         """Start a background task watching the vault for filesystem changes.
 
@@ -183,8 +214,8 @@ class ObsidianNotesConnector(BaseConnector):
 
     async def _watch_loop(
         self,
-        on_upsert: Callable[[Document], Coroutine[Any, Any, Any]],
-        on_delete: Callable[[str], Coroutine[Any, Any, Any]],
+        on_upsert: Callable[[Document], Awaitable[Any]],
+        on_delete: Callable[[str], Awaitable[None]],
     ) -> None:
         """Internal loop using watchfiles.awatch with 2 s debounce."""
         try:
@@ -210,7 +241,7 @@ class ObsidianNotesConnector(BaseConnector):
     async def _handle_upsert(
         self,
         path: Path,
-        on_upsert: Callable[[Document], Coroutine[Any, Any, Any]],
+        on_upsert: Callable[[Document], Awaitable[Any]],
     ) -> None:
         try:
             doc = await asyncio.to_thread(self._to_document, path)
@@ -226,7 +257,7 @@ class ObsidianNotesConnector(BaseConnector):
     async def _handle_delete(
         self,
         path: Path,
-        on_delete: Callable[[str], Coroutine[Any, Any, Any]],
+        on_delete: Callable[[str], Awaitable[None]],
     ) -> None:
         try:
             rel = str(path.relative_to(self._vault_path))
@@ -258,53 +289,63 @@ class ObsidianNotesConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     async def _fetch_gen(self, since: datetime.datetime | None) -> AsyncGenerator[Document, None]:
+        # NOTE: watcher (_handle_upsert/_handle_delete) can write file state concurrently
+        # with this generator.  For v1 (local, single-user) the worst outcome is a
+        # harmless re-index of a note on the next scheduled run; no index documents are lost.
+        # A future multi-user version should add an asyncio.Lock around all file-state I/O.
         file_state = await self._load_file_state()
         vault_paths = await asyncio.to_thread(self._collect_vault_paths)
 
-        for path in vault_paths:
-            try:
-                rel = str(path.relative_to(self._vault_path))
-            except ValueError:
-                continue
+        try:
+            for path in vault_paths:
+                try:
+                    rel = str(path.relative_to(self._vault_path))
+                except ValueError:
+                    continue
 
-            stat = await asyncio.to_thread(path.stat)
-            mtime = stat.st_mtime
+                stat = await asyncio.to_thread(path.stat)
+                mtime = stat.st_mtime
 
-            existing = file_state.get(rel)
-            if existing is not None and existing["mtime"] == mtime:
-                # Quick mtime check: no change
-                continue
+                existing = file_state.get(rel)
+                # mtime equality check: fast path for unchanged files.
+                # On low-resolution filesystems (FAT32 = 2 s, some network FSes)
+                # two distinct versions written within the resolution window will
+                # compare equal here — the content hash below is the safety net.
+                if existing is not None and existing["mtime"] == mtime:
+                    continue
 
-            try:
-                content = await asyncio.to_thread(path.read_text, "utf-8", "replace")
-                content_hash = hashlib.sha256(content.encode()).hexdigest()
+                try:
+                    content = await asyncio.to_thread(path.read_text, "utf-8", "replace")
+                    content_hash = hashlib.sha256(content.encode()).hexdigest()
 
-                if existing is not None and existing["content_hash"] == content_hash:
-                    # mtime changed but content identical — skip, update mtime
+                    if existing is not None and existing["content_hash"] == content_hash:
+                        # mtime changed but content identical — skip, update mtime
+                        file_state[rel] = _ObsidianFileEntry(
+                            doc_id=existing["doc_id"],
+                            mtime=mtime,
+                            content_hash=content_hash,
+                        )
+                        continue
+
+                    doc = await asyncio.to_thread(self._build_document, path, content, stat)
                     file_state[rel] = _ObsidianFileEntry(
-                        doc_id=existing["doc_id"],
+                        doc_id=doc.id,
                         mtime=mtime,
                         content_hash=content_hash,
                     )
-                    continue
+                    self._total_docs_synced += 1
+                    yield doc
 
-                doc = await asyncio.to_thread(self._build_document, path, content, stat)
-                file_state[rel] = _ObsidianFileEntry(
-                    doc_id=doc.id,
-                    mtime=mtime,
-                    content_hash=content_hash,
-                )
-                self._total_docs_synced += 1
-                yield doc
-
-            except Exception:
-                log.warning(
-                    "obsidian_connector.file_read_failed",
-                    path=str(path),
-                    exc_info=True,
-                )
-
-        await self._save_file_state(file_state)
+                except Exception:
+                    log.warning(
+                        "obsidian_connector.file_read_failed",
+                        path=str(path),
+                        exc_info=True,
+                    )
+        finally:
+            # Persist state regardless of whether the caller exhausts the generator
+            # or breaks early (e.g. exception in the index layer).
+            await self._save_file_state(file_state)
 
     # ------------------------------------------------------------------
     # Private: vault scanning
@@ -431,12 +472,18 @@ class ObsidianNotesConnector(BaseConnector):
         return await asyncio.to_thread(_read)
 
     async def _save_file_state(self, state: dict[str, _ObsidianFileEntry]) -> None:
-        """Persist the per-file state cache to disk."""
+        """Atomically persist the per-file state cache to disk.
+
+        Writes to a sibling ``.tmp`` file then renames to the final path so that
+        a crash or OOM mid-write never leaves a truncated JSON file.
+        """
         state_file = self._file_state_file
         serialized = json.dumps({k: dict(v) for k, v in state.items()}, indent=2)
 
         def _write() -> None:
             state_file.parent.mkdir(parents=True, exist_ok=True)
-            state_file.write_text(serialized)
+            tmp = state_file.with_suffix(".tmp")
+            tmp.write_text(serialized)
+            tmp.replace(state_file)
 
         await asyncio.to_thread(_write)
