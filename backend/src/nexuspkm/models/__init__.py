@@ -5,6 +5,7 @@ import directly from ``nexuspkm.models`` without knowing the submodule layout.
 """
 
 from nexuspkm.models.chat import ChatMessage, ChatSession
+from nexuspkm.models.contradiction import Contradiction, ContradictionType, QueueStatus
 from nexuspkm.models.document import (
     ChunkResult,
     Document,
@@ -42,6 +43,10 @@ __all__ = [
     # chat
     "ChatMessage",
     "ChatSession",
+    # contradiction
+    "Contradiction",
+    "ContradictionType",
+    "QueueStatus",
     # document
     "ChunkResult",
     "Document",

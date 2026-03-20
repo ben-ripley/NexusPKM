@@ -10,13 +10,28 @@ from nexuspkm.api.connectors import get_connector_registry, get_sync_scheduler
 from nexuspkm.api.connectors import router as connectors_router
 from nexuspkm.api.engine import get_knowledge_index
 from nexuspkm.api.engine import router as engine_router
+from nexuspkm.api.entities import (
+    get_contradiction_detector,
+    get_extraction_queue,
+    get_graph_store,
+)
+from nexuspkm.api.entities import router as entities_router
 from nexuspkm.api.obsidian import router as obsidian_router
 from nexuspkm.api.providers import get_registry
 from nexuspkm.api.providers import router as providers_router
 from nexuspkm.config.loader import load_config
 from nexuspkm.connectors.registry import ConnectorRegistry
 from nexuspkm.connectors.scheduler import SyncScheduler
-from nexuspkm.engine import GraphStore, KnowledgeIndex, VectorStore
+from nexuspkm.engine import (
+    ContradictionDetector,
+    EntityDeduplicator,
+    EntityExtractionPipeline,
+    EntityExtractor,
+    ExtractionQueue,
+    GraphStore,
+    KnowledgeIndex,
+    VectorStore,
+)
 from nexuspkm.providers.registry import ProviderRegistry
 
 log = structlog.get_logger()
@@ -27,12 +42,14 @@ _vector_store: VectorStore | None = None
 _graph_store: GraphStore | None = None
 _connector_registry: ConnectorRegistry | None = None
 _sync_scheduler: SyncScheduler | None = None
+_extraction_queue: ExtractionQueue | None = None
+_contradiction_detector: ContradictionDetector | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _registry, _knowledge_index, _vector_store, _graph_store
-    global _connector_registry, _sync_scheduler
+    global _connector_registry, _sync_scheduler, _extraction_queue, _contradiction_detector
     config = await asyncio.to_thread(load_config)
     _registry = ProviderRegistry(config.providers)
     app.dependency_overrides[get_registry] = lambda: _registry
@@ -45,13 +62,45 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _vector_store = VectorStore(db_path=str(data_dir / "lancedb"), dimensions=embed_dim)
     try:
         _graph_store = await asyncio.to_thread(GraphStore, data_dir / "kuzu")
-        _knowledge_index = KnowledgeIndex(_vector_store, _graph_store, embedding_provider)
+        # Init extraction queue (persistent SQLite) before KnowledgeIndex so the
+        # queue can be passed in for automatic enqueuing after each ingest.
+        extraction_db_path = data_dir / "extraction_queue.db"
+        _extraction_queue = ExtractionQueue(extraction_db_path)
+        await _extraction_queue.init()
+        contradiction_db_path = data_dir / "contradictions.db"
+        _contradiction_detector = ContradictionDetector(contradiction_db_path)
+        await _contradiction_detector.init()
+        _knowledge_index = KnowledgeIndex(
+            _vector_store,
+            _graph_store,
+            embedding_provider,
+            extraction_queue=_extraction_queue,
+        )
     except Exception:
         if _graph_store is not None:
             await asyncio.to_thread(_graph_store.close)
         await _vector_store.close()
         raise
     app.dependency_overrides[get_knowledge_index] = lambda: _knowledge_index
+    app.dependency_overrides[get_graph_store] = lambda: _graph_store
+    app.dependency_overrides[get_extraction_queue] = lambda: _extraction_queue
+    app.dependency_overrides[get_contradiction_detector] = lambda: _contradiction_detector
+
+    llm_provider = _registry.get_llm()
+    _extractor = EntityExtractor(llm_provider)
+    _deduplicator = EntityDeduplicator(
+        _graph_store,
+        _knowledge_index.graph_lock,
+        llm_provider,
+    )
+    _pipeline = EntityExtractionPipeline(
+        _extractor,
+        _deduplicator,
+        _graph_store,
+        _knowledge_index.graph_lock,
+        _contradiction_detector,
+    )
+    _extraction_queue.start(_pipeline, concurrency=2)
 
     _connector_registry = ConnectorRegistry()
     intervals: dict[str, int] = {}
@@ -113,6 +162,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _obsidian_connector.stop_watching()
     if _sync_scheduler:
         await _sync_scheduler.shutdown()
+    if _extraction_queue is not None:
+        await _extraction_queue.stop()
     if _vector_store:
         await _vector_store.close()
     if _graph_store:
@@ -123,6 +174,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _graph_store = None
     _connector_registry = None
     _sync_scheduler = None
+    _extraction_queue = None
+    _contradiction_detector = None
 
 
 app = FastAPI(title="NexusPKM", lifespan=lifespan)
@@ -131,6 +184,7 @@ app.include_router(engine_router)
 app.include_router(connectors_router)
 app.include_router(obsidian_router)
 app.include_router(generic_connectors_router)
+app.include_router(entities_router)
 
 
 @app.get("/health")
