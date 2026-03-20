@@ -1,6 +1,11 @@
 import { cn } from '@/lib/utils'
 import type { SearchFilters } from '@/services/api'
 
+function toLocalDateValue(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 interface SearchFiltersProps {
   filters: SearchFilters
   availableSourceTypes: string[]
@@ -26,14 +31,14 @@ export default function SearchFiltersPanel({
   const handleDateFrom = (value: string) => {
     onChange({
       ...filters,
-      date_from: value ? new Date(value).toISOString() : undefined,
+      date_from: value ? new Date(value + 'T00:00:00').toISOString() : undefined,
     })
   }
 
   const handleDateTo = (value: string) => {
     onChange({
       ...filters,
-      date_to: value ? new Date(value).toISOString() : undefined,
+      date_to: value ? new Date(value + 'T00:00:00').toISOString() : undefined,
     })
   }
 
@@ -65,11 +70,7 @@ export default function SearchFiltersPanel({
             <input
               type="date"
               aria-label="From"
-              value={
-                filters.date_from
-                  ? new Date(filters.date_from).toISOString().slice(0, 10)
-                  : ''
-              }
+              value={filters.date_from ? toLocalDateValue(filters.date_from) : ''}
               className="rounded-md border bg-background px-2 py-1 text-xs"
               onChange={(e) => handleDateFrom(e.target.value)}
             />
@@ -79,11 +80,7 @@ export default function SearchFiltersPanel({
             <input
               type="date"
               aria-label="To"
-              value={
-                filters.date_to
-                  ? new Date(filters.date_to).toISOString().slice(0, 10)
-                  : ''
-              }
+              value={filters.date_to ? toLocalDateValue(filters.date_to) : ''}
               className="rounded-md border bg-background px-2 py-1 text-xs"
               onChange={(e) => handleDateTo(e.target.value)}
             />
