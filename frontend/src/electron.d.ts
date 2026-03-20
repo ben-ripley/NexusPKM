@@ -14,6 +14,6 @@ interface Window {
       setAutoLaunch: (enabled: boolean) => void
     }
 
-    onNavigate: (callback: (path: string) => void) => void
+    onNavigate: (callback: (path: string) => void) => () => void
   }
 }

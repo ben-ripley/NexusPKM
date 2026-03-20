@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
@@ -18,9 +18,12 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   // Main process can request navigation (e.g. Quick Chat tray button).
-  // Replaces any previous listener to prevent duplicate registrations.
-  onNavigate: (callback: (path: string) => void) => {
-    ipcRenderer.removeAllListeners('navigate')
-    ipcRenderer.on('navigate', (_event, path: string) => callback(path))
+  // Returns an unsubscribe function so the renderer can clean up on unmount.
+  onNavigate: (callback: (path: string) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, path: string): void => callback(path)
+    ipcRenderer.on('navigate', listener)
+    return () => {
+      ipcRenderer.removeListener('navigate', listener)
+    }
   },
 })
