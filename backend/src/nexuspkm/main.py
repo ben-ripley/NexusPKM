@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from nexuspkm.api.connectors import generic_router as generic_connectors_router
 from nexuspkm.api.connectors import get_connector_registry, get_sync_scheduler
 from nexuspkm.api.connectors import router as connectors_router
 from nexuspkm.api.engine import get_knowledge_index
@@ -129,6 +130,7 @@ app.include_router(providers_router)
 app.include_router(engine_router)
 app.include_router(connectors_router)
 app.include_router(obsidian_router)
+app.include_router(generic_connectors_router)
 
 
 @app.get("/health")
