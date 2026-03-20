@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { AlertCircle, CheckCircle, Clock, RefreshCw, XCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -5,7 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { ConnectorStatus } from '@/services/api'
 
-const STATUS_CONFIG: Record<ConnectorStatus['status'], { icon: React.ReactNode; badge: string }> =
+const STATUS_CONFIG: Record<ConnectorStatus['status'], { icon: ReactNode; badge: string }> =
   {
     healthy: {
       icon: <CheckCircle className="size-4 text-green-500" />,

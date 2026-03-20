@@ -39,20 +39,23 @@ export function useDashboard() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['connectors-status'] })
     },
+    onError: (err: Error) => {
+      // Expose sync error via syncError return value so the UI can surface it.
+      // A future toast integration can replace this.
+      console.error('Connector sync failed:', err.message)
+    },
   })
-
-  const isLoading =
-    activityQuery.isLoading ||
-    statsQuery.isLoading ||
-    connectorsQuery.isLoading ||
-    upcomingQuery.isLoading
 
   return {
     activity: activityQuery.data?.items ?? [],
     stats: statsQuery.data ?? null,
     connectors: connectorsQuery.data ?? [],
     upcoming: upcomingQuery.data?.items ?? [],
-    isLoading,
+    // Per-query loading states so each panel can render independently.
+    isLoadingActivity: activityQuery.isLoading,
+    isLoadingStats: statsQuery.isLoading,
+    isLoadingConnectors: connectorsQuery.isLoading,
+    isLoadingUpcoming: upcomingQuery.isLoading,
     errors: {
       activity: activityQuery.error,
       stats: statsQuery.error,
@@ -61,5 +64,6 @@ export function useDashboard() {
     },
     triggerSync: syncMutation.mutate,
     isSyncing: syncMutation.isPending,
+    syncError: syncMutation.error,
   }
 }

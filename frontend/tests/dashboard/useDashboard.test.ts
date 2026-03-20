@@ -3,6 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createElement } from 'react'
+import type { ReactNode } from 'react'
 import { useDashboard } from '@/hooks/useDashboard'
 import * as api from '@/services/api'
 
@@ -22,7 +23,7 @@ vi.mock('@/services/api', () => ({
 
 function makeWrapper() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return ({ children }: { children: React.ReactNode }) =>
+  return ({ children }: { children: ReactNode }) =>
     createElement(QueryClientProvider, { client }, children)
 }
 
@@ -33,26 +34,26 @@ describe('useDashboard', () => {
 
   it('calls fetchDashboardActivity with correct query key', async () => {
     const { result } = renderHook(() => useDashboard(), { wrapper: makeWrapper() })
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await waitFor(() => expect(result.current.isLoadingActivity).toBe(false))
     expect(api.fetchDashboardActivity).toHaveBeenCalled()
   })
 
   it('calls fetchDashboardStats', async () => {
     const { result } = renderHook(() => useDashboard(), { wrapper: makeWrapper() })
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await waitFor(() => expect(result.current.isLoadingActivity).toBe(false))
     expect(api.fetchDashboardStats).toHaveBeenCalled()
     expect(result.current.stats?.total_documents).toBe(5)
   })
 
   it('calls fetchConnectorStatuses', async () => {
     const { result } = renderHook(() => useDashboard(), { wrapper: makeWrapper() })
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await waitFor(() => expect(result.current.isLoadingActivity).toBe(false))
     expect(api.fetchConnectorStatuses).toHaveBeenCalled()
   })
 
   it('triggerSync calls triggerConnectorSync with the connector name', async () => {
     const { result } = renderHook(() => useDashboard(), { wrapper: makeWrapper() })
-    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    await waitFor(() => expect(result.current.isLoadingActivity).toBe(false))
     result.current.triggerSync('teams')
     await waitFor(() => expect(api.triggerConnectorSync).toHaveBeenCalled())
     const calls = (api.triggerConnectorSync as ReturnType<typeof vi.fn>).mock.calls

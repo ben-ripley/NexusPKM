@@ -90,7 +90,7 @@ async def get_stats(
     except HTTPException:
         raise
     except Exception as exc:
-        log.error("dashboard_stats_failed", error=str(exc))
+        log.error("dashboard_stats_failed", error=str(exc), exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to retrieve dashboard stats") from exc
 
     return DashboardStatsResponse(
@@ -98,8 +98,9 @@ async def get_stats(
         total_chunks=raw.get("chunks", 0),
         total_entities=raw.get("entities", 0),
         total_relationships=raw.get("relationships", 0),
-        # by_source_type is stubbed empty until per-source ingestion tracking
-        # is implemented. KnowledgeIndex.stats() does not yet return per-source counts.
+        # KnowledgeIndex.stats() returns dict[str, int] (flat); per-source counts
+        # are not yet tracked. When that data is added, update stats() to return
+        # by_source_type and wire it through here.
         by_source_type={},
     )
 

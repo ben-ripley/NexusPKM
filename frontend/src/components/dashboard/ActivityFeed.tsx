@@ -1,10 +1,11 @@
+import type { ReactNode } from 'react'
 import { Activity, FileText, GitBranch, RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { ActivityItem } from '@/services/api'
 
-const ACTIVITY_ICONS: Record<ActivityItem['type'], React.ReactNode> = {
+const ACTIVITY_ICONS: Record<ActivityItem['type'], ReactNode> = {
   document_ingested: <FileText className="size-4 text-blue-500" />,
   entity_discovered: <GitBranch className="size-4 text-purple-500" />,
   relationship_created: <GitBranch className="size-4 text-green-500" />,
