@@ -51,7 +51,9 @@ describe('Router', () => {
 
   it('renders Search at /search', () => {
     renderRoute('/search')
-    expect(screen.getByRole('heading', { name: 'Search' })).toBeInTheDocument()
+    expect(
+      screen.getByPlaceholderText('Search your knowledge base...')
+    ).toBeInTheDocument()
   })
 
   it('renders Graph Explorer at /graph', () => {
