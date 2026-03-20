@@ -57,6 +57,9 @@ _ENTITY_TYPES_WITH_ALIASES: frozenset[EntityType] = frozenset(
     {EntityType.PERSON, EntityType.PROJECT}
 )
 
+# Whitelist of valid Kuzu node label strings used in f-string query construction.
+_ALLOWED_NODE_LABELS: frozenset[str] = frozenset(_ENTITY_TYPE_TABLE.values())
+
 
 def _levenshtein(a: str, b: str) -> int:
     """Compute Levenshtein edit distance between two strings (DP, O(len(a)*len(b)))."""
@@ -112,6 +115,8 @@ class EntityDeduplicator:
         table = _ENTITY_TYPE_TABLE.get(entity.type)
         if table is None:
             return None
+        if table not in _ALLOWED_NODE_LABELS:
+            raise ValueError(f"Unexpected node label: {table!r}")
 
         name_field = _ENTITY_NAME_FIELD.get(entity.type, "name")
         has_aliases = entity.type in _ENTITY_TYPES_WITH_ALIASES

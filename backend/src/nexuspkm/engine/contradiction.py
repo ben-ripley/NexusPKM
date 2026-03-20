@@ -159,12 +159,12 @@ class ContradictionDetector:
     async def list_all(self) -> list[Contradiction]:
         """Return all contradictions (resolved and unresolved)."""
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._list_sync, None)
+        return await loop.run_in_executor(None, self._list_sync, False)
 
-    def _list_sync(self, only_unresolved: bool | None) -> list[Contradiction]:
+    def _list_sync(self, only_unresolved: bool) -> list[Contradiction]:
         with sqlite3.connect(self._db_path) as conn:
             conn.row_factory = sqlite3.Row
-            if only_unresolved is True:
+            if only_unresolved:
                 rows = conn.execute(
                     "SELECT * FROM contradictions WHERE resolved=0 ORDER BY detected_at DESC"
                 ).fetchall()

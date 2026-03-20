@@ -15,7 +15,7 @@ Spec: F-006 API endpoints
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
@@ -62,11 +62,14 @@ def get_contradiction_detector() -> ContradictionDetector:
 # ---------------------------------------------------------------------------
 
 
+PropertyValue = str | int | float | bool | None
+
+
 class EntityResponse(BaseModel):
     id: str
     name: str
     entity_type: EntityType
-    properties: dict[str, Any] = Field(default_factory=dict)
+    properties: dict[str, PropertyValue] = Field(default_factory=dict)
 
 
 class EntityDetailResponse(EntityResponse):
