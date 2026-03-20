@@ -17,8 +17,9 @@ import datetime
 import fnmatch
 import hashlib
 import json
+import os
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine, Generator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Coroutine
 from pathlib import Path
 from typing import Any, TypedDict, cast
 
@@ -72,28 +73,33 @@ class ObsidianNotesConnector(BaseConnector):
         return self._fetch_gen(since)
 
     async def fetch_deleted_ids(self, since: datetime.datetime | None = None) -> list[str]:
-        """Return doc IDs for notes that have been deleted from the vault."""
+        """Return doc IDs for notes that have been deleted from the vault.
+
+        Also removes the corresponding entries from the persisted file state so
+        repeated calls do not re-report the same deletions.
+        """
         file_state = await self._load_file_state()
         if not file_state:
             return []
 
-        current_paths: set[str] = set()
-        for path in self._scan_vault():
-            try:
-                rel = str(path.relative_to(self._vault_path))
-            except ValueError:
-                continue
-            current_paths.add(rel)
+        vault_files = await asyncio.to_thread(self._collect_vault_paths)
+        current_paths = {str(p.relative_to(self._vault_path)) for p in vault_files}
 
         deleted_ids: list[str] = []
+        updated_state = dict(file_state)
         for rel_path, entry in file_state.items():
             if rel_path not in current_paths:
                 deleted_ids.append(entry["doc_id"])
+                del updated_state[rel_path]
                 log.info(
                     "obsidian_connector.file_deleted",
                     path=rel_path,
                     doc_id=entry["doc_id"],
                 )
+
+        if deleted_ids:
+            await self._save_file_state(updated_state)
+
         return deleted_ids
 
     async def health_check(self) -> ConnectorStatus:
@@ -196,8 +202,7 @@ class ObsidianNotesConnector(BaseConnector):
                 if not self._should_process_path(path):
                     continue
 
-                # watchfiles Change enum: 1=added, 2=modified, 3=deleted
-                if change_type.value == 3:
+                if change_type == watchfiles.Change.deleted:
                     await self._handle_delete(path, on_delete)
                 else:
                     await self._handle_upsert(path, on_upsert)
@@ -254,8 +259,9 @@ class ObsidianNotesConnector(BaseConnector):
 
     async def _fetch_gen(self, since: datetime.datetime | None) -> AsyncGenerator[Document, None]:
         file_state = await self._load_file_state()
+        vault_paths = await asyncio.to_thread(self._collect_vault_paths)
 
-        for path in self._scan_vault():
+        for path in vault_paths:
             try:
                 rel = str(path.relative_to(self._vault_path))
             except ValueError:
@@ -282,7 +288,7 @@ class ObsidianNotesConnector(BaseConnector):
                     )
                     continue
 
-                doc = await asyncio.to_thread(self._to_document, path)
+                doc = await asyncio.to_thread(self._build_document, path, content, stat)
                 file_state[rel] = _ObsidianFileEntry(
                     doc_id=doc.id,
                     mtime=mtime,
@@ -304,8 +310,13 @@ class ObsidianNotesConnector(BaseConnector):
     # Private: vault scanning
     # ------------------------------------------------------------------
 
-    def _scan_vault(self) -> Generator[Path, None, None]:
-        """Yield Path objects for all matching files in the vault."""
+    def _collect_vault_paths(self) -> list[Path]:
+        """Return all matching vault files as a list.
+
+        Intended to be called via ``asyncio.to_thread`` to avoid blocking
+        the event loop during directory traversal.
+        """
+        results: list[Path] = []
         for p in self._vault_path.rglob("*"):
             if not p.is_file():
                 continue
@@ -317,7 +328,8 @@ class ObsidianNotesConnector(BaseConnector):
                 continue
             if p.suffix.lower() not in self._config.include_extensions:
                 continue
-            yield p
+            results.append(p)
+        return results
 
     def _is_excluded(self, rel_path: str) -> bool:
         """Return True if *rel_path* matches any configured exclude pattern."""
@@ -341,18 +353,22 @@ class ObsidianNotesConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     def _to_document(self, path: Path) -> Document:
-        """Parse an Obsidian note file and return a canonical Document."""
+        """Read *path* from disk and return a canonical Document.
+
+        Used by the filesystem watcher where content is not pre-fetched.
+        The main fetch pipeline uses ``_build_document`` to avoid re-reading.
+        """
         raw = path.read_text(encoding="utf-8", errors="replace")
-        parsed = parse_obsidian_note(raw, path.stem)
+        stat = os.stat(path)
+        return self._build_document(path, raw, stat)
+
+    def _build_document(self, path: Path, content: str, stat: os.stat_result) -> Document:
+        """Build a canonical Document from pre-read *content* and *stat* data."""
+        parsed = parse_obsidian_note(content, path.stem)
 
         now = datetime.datetime.now(tz=datetime.UTC)
-        try:
-            stat = path.stat()
-            mtime = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.UTC)
-            ctime = datetime.datetime.fromtimestamp(stat.st_ctime, tz=datetime.UTC)
-        except OSError:
-            mtime = now
-            ctime = now
+        mtime = datetime.datetime.fromtimestamp(stat.st_mtime, tz=datetime.UTC)
+        ctime = datetime.datetime.fromtimestamp(stat.st_ctime, tz=datetime.UTC)
 
         # Use created_at <= updated_at: if ctime > mtime, fall back to mtime for both
         created_at = min(ctime, mtime)
@@ -369,11 +385,11 @@ class ObsidianNotesConnector(BaseConnector):
         doc_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"obsidian:{rel}"))
         source_id = str(rel)
 
-        content = parsed.plain_content or title
+        plain = parsed.plain_content or title
 
         return Document(
             id=doc_id,
-            content=content,
+            content=plain,
             metadata=DocumentMetadata(
                 source_type=SourceType.OBSIDIAN_NOTE,
                 source_id=source_id,
