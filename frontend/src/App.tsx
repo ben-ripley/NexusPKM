@@ -1,9 +1,8 @@
+import { RouterProvider } from 'react-router-dom'
+import { router } from '@/router'
+
 function App() {
-  return (
-    <div className="min-h-screen bg-background text-foreground">
-      <h1 className="p-4 text-2xl font-bold">NexusPKM</h1>
-    </div>
-  )
+  return <RouterProvider router={router} />
 }
 
 export default App
