@@ -29,9 +29,13 @@ router = APIRouter(prefix="/api/connectors/teams", tags=["connectors"])
 generic_router = APIRouter(prefix="/api/connectors", tags=["connectors"])
 
 # Connector names are validated against this pattern to prevent path traversal
-# and excessively long inputs. "status" is reserved by the generic GET /status
-# endpoint and must not be used as a connector name.
+# and excessively long inputs.
 _CONNECTOR_NAME_PATTERN = r"^[a-zA-Z0-9_\-]{1,64}$"
+
+# Names reserved by literal path segments on the same prefix. Pydantic-core
+# uses a Rust regex engine that does not support lookaheads, so reserved names
+# are enforced at runtime inside each handler rather than in the pattern.
+_RESERVED_CONNECTOR_NAMES: frozenset[str] = frozenset({"status"})
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +106,7 @@ class ConnectorStatusItem(BaseModel):
 class GenericConfigUpdate(BaseModel):
     """Request body for updating a connector's sync interval."""
 
-    sync_interval_minutes: int = Field(default=30, gt=0, le=1440)
+    sync_interval_minutes: int = Field(default=30, ge=1, le=1440)
 
 
 class MSDeviceCodeResponse(BaseModel):
@@ -289,6 +293,8 @@ async def generic_trigger_sync(
     scheduler: Annotated[SyncScheduler, Depends(get_sync_scheduler)],
 ) -> SyncStartedResponse:
     """Trigger a manual sync for any registered connector."""
+    if name in _RESERVED_CONNECTOR_NAMES:
+        raise HTTPException(status_code=422, detail=f"'{name}' is a reserved connector name")
     if registry.get(name) is None:
         raise HTTPException(status_code=404, detail=f"Connector '{name}' not registered")
 
@@ -305,6 +311,8 @@ async def generic_update_config(
     scheduler: Annotated[SyncScheduler, Depends(get_sync_scheduler)],
 ) -> ConfigUpdatedResponse:
     """Update the sync interval for any registered connector."""
+    if name in _RESERVED_CONNECTOR_NAMES:
+        raise HTTPException(status_code=422, detail=f"'{name}' is a reserved connector name")
     if registry.get(name) is None:
         raise HTTPException(status_code=404, detail=f"Connector '{name}' not registered")
 
@@ -324,6 +332,8 @@ async def generic_authenticate(
     registry: Annotated[ConnectorRegistry, Depends(get_connector_registry)],
 ) -> MSDeviceCodeResponse:
     """Initiate MS device-code auth for any MS-capable connector."""
+    if name in _RESERVED_CONNECTOR_NAMES:
+        raise HTTPException(status_code=422, detail=f"'{name}' is a reserved connector name")
     connector = registry.get(name)
     if connector is None:
         raise HTTPException(status_code=404, detail=f"Connector '{name}' not registered")
@@ -337,7 +347,7 @@ async def generic_authenticate(
     try:
         info, context = await connector.initiate_auth_flow()
     except Exception as exc:
-        log.error("ms_auth.initiate_failed", connector=name, error=str(exc))
+        log.error("ms_auth.initiate_failed", connector=name, error=str(exc), exc_info=True)
         raise HTTPException(
             status_code=500, detail="Authentication flow could not be initiated"
         ) from exc

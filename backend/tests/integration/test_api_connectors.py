@@ -203,6 +203,13 @@ class TestTriggerSync:
 
         assert response.status_code == 422
 
+    def test_reserved_name_status_returns_422(self, connector_client: TestClient) -> None:
+        # "status" is excluded from _CONNECTOR_NAME_PATTERN to prevent routing
+        # ambiguity with the literal GET /api/connectors/status endpoint.
+        response = connector_client.post("/api/connectors/status/sync")
+
+        assert response.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # PUT /api/connectors/{name}/config
@@ -262,6 +269,14 @@ class TestUpdateConfig:
         response = connector_client.put(
             "/api/connectors/bad.name/config",
             json={"sync_interval_minutes": 30},
+        )
+
+        assert response.status_code == 422
+
+    def test_interval_above_1440_returns_422(self, connector_client: TestClient) -> None:
+        response = connector_client.put(
+            "/api/connectors/test_source/config",
+            json={"sync_interval_minutes": 1441},
         )
 
         assert response.status_code == 422
@@ -331,3 +346,29 @@ class TestAuthenticate:
         response = connector_client.post("/api/connectors/bad.name/authenticate")
 
         assert response.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# MSAuthConnector Protocol isinstance behaviour
+# ---------------------------------------------------------------------------
+
+
+class TestMSAuthConnectorProtocol:
+    """Verify that the runtime_checkable Protocol check behaves correctly.
+
+    These tests pin the current isinstance() behaviour so that any future
+    change to BaseConnector or TeamsTranscriptConnector that inadvertently
+    adds/removes the auth methods is caught immediately.
+    """
+
+    def test_teams_connector_passes_protocol_check(self) -> None:
+        from nexuspkm.api.connectors import MSAuthConnector
+
+        connector = MagicMock(spec=TeamsTranscriptConnector)
+        assert isinstance(connector, MSAuthConnector)
+
+    def test_base_connector_fails_protocol_check(self) -> None:
+        from nexuspkm.api.connectors import MSAuthConnector
+
+        connector = MagicMock(spec=BaseConnector)
+        assert not isinstance(connector, MSAuthConnector)
