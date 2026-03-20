@@ -3,7 +3,6 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 import SearchFilters from '@/components/search/SearchFilters'
-import type { SearchFilters as SearchFiltersType } from '@/services/api'
 
 describe('SearchFilters', () => {
   it('renders source type checkboxes for each available type', () => {
