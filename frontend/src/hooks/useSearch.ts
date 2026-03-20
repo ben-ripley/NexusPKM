@@ -43,7 +43,7 @@ export function useSearch() {
       if (!q.trim()) return
       searchMutation.mutate({ query: q, filters: f ?? filters, top_k: 20 })
     },
-    [filters, searchMutation]
+    [filters, searchMutation.mutate]
   )
 
   return {

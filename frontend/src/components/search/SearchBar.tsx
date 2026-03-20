@@ -71,6 +71,7 @@ export default function SearchBar({
           aria-label="Search"
           aria-autocomplete="list"
           aria-expanded={isDropdownVisible}
+          aria-controls="search-suggestions"
         />
         {isSearching && (
           <Loader2 className="absolute right-3 size-4 animate-spin text-muted-foreground" />
@@ -79,6 +80,7 @@ export default function SearchBar({
 
       {isDropdownVisible && (
         <ul
+          id="search-suggestions"
           className="absolute z-10 mt-1 w-full rounded-md border bg-popover shadow-md"
           role="listbox"
         >
