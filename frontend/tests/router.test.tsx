@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
 import { AppShell } from '@/components/layout/AppShell'
 import DashboardPage from '@/pages/DashboardPage'
@@ -24,10 +25,17 @@ const routes = [
 ]
 
 function renderRoute(initialRoute: string) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
   const router = createMemoryRouter(routes, {
     initialEntries: [initialRoute],
   })
-  return render(<RouterProvider router={router} />)
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
+  )
 }
 
 describe('Router', () => {
@@ -38,7 +46,7 @@ describe('Router', () => {
 
   it('renders Chat at /chat', () => {
     renderRoute('/chat')
-    expect(screen.getByRole('heading', { name: 'Chat' })).toBeInTheDocument()
+    expect(screen.getByText('New Chat')).toBeInTheDocument()
   })
 
   it('renders Search at /search', () => {
