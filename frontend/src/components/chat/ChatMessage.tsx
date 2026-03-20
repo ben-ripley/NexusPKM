@@ -22,8 +22,8 @@ export default function ChatMessage({ message }: ChatMessageProps) {
       await navigator.clipboard.writeText(message.content)
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
-    } catch {
-      // Clipboard API unavailable or denied — fail silently
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err)
     }
   }
 

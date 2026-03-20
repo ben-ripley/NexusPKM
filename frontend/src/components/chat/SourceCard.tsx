@@ -27,6 +27,15 @@ function truncate(text: string, maxLen: number): string {
   return text.slice(0, maxLen) + '...'
 }
 
+function isSafeUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url)
+    return protocol === 'https:' || protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
 export default function SourceCard({ source, index, highlighted }: SourceCardProps) {
   const [expanded, setExpanded] = useState(false)
   const scorePercent = Math.round(source.relevance_score * 100)
@@ -64,7 +73,7 @@ export default function SourceCard({ source, index, highlighted }: SourceCardPro
           <p className="text-muted-foreground">{source.excerpt}</p>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
             <span>{formatTimestamp(source.created_at)}</span>
-            {source.url && (source.url.startsWith('https://') || source.url.startsWith('http://')) && (
+            {source.url && isSafeUrl(source.url) && (
               <a
                 href={source.url}
                 target="_blank"

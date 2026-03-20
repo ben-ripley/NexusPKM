@@ -66,8 +66,10 @@ export class ChatWebSocket {
     if (apiUrl) {
       return apiUrl.replace(/^http/, 'ws')
     }
+    // In Electron the protocol is file: and host is empty — fall back to localhost
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${protocol}//${window.location.host}`
+    const host = window.location.host || 'localhost:8000'
+    return `${protocol}//${host}`
   }
 
   private openConnection(): void {

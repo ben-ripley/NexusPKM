@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import ChatMessage from './ChatMessage'
 import { useChatStore } from '@/stores/chat'
@@ -38,7 +40,7 @@ export default function ChatMessageList({ className, onSuggestionClick }: ChatMe
         {isStreaming && streamingContent && (
           <div className="flex justify-start">
             <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-muted px-4 py-2">
-              <p className="whitespace-pre-wrap">{streamingContent}</p>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
             </div>
           </div>
         )}

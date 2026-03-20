@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from '@testing-library/react'
-import { describe, it, expect } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi } from 'vitest'
 import ChatMessage from '@/components/chat/ChatMessage'
 import type { Message } from '@/stores/chat'
 
@@ -69,5 +70,22 @@ describe('ChatMessage', () => {
     const msg = makeMessage({ content: 'Some content to copy' })
     render(<ChatMessage message={msg} />)
     expect(screen.getByRole('button', { name: /copy/i })).toBeInTheDocument()
+  })
+
+  it('handles clipboard write failure gracefully without throwing', async () => {
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error('NotAllowedError')),
+      },
+      writable: true,
+      configurable: true,
+    })
+    const msg = makeMessage({ content: 'Content to copy' })
+    render(<ChatMessage message={msg} />)
+    // Should not throw even when the clipboard API rejects
+    await expect(
+      user.click(screen.getByRole('button', { name: /copy/i }))
+    ).resolves.not.toThrow()
   })
 })

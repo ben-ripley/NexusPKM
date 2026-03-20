@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useCallback } from 'react'
+import { z } from 'zod'
 import { ChatWebSocket } from '@/services/websocket'
 import { useChatStore } from '@/stores/chat'
 import type { SourceAttribution } from '@/services/websocket'
@@ -7,28 +8,52 @@ import type { SessionMeta, Message } from '@/stores/chat'
 
 const API = import.meta.env.VITE_API_URL ?? ''
 
-interface SessionDetail {
-  id: string
-  title: string
-  messages: Message[]
-  created_at: string
-  updated_at: string
-}
+// Runtime validation schemas
+const SourceAttributionSchema = z.object({
+  document_id: z.string(),
+  title: z.string(),
+  source_type: z.string(),
+  source_id: z.string(),
+  excerpt: z.string(),
+  relevance_score: z.number(),
+  created_at: z.string(),
+  url: z.string().nullable().optional(),
+  participants: z.array(z.string()).optional(),
+})
+
+const MessageSchema = z.object({
+  id: z.string(),
+  role: z.enum(['user', 'assistant']),
+  content: z.string(),
+  sources: z.array(SourceAttributionSchema),
+  timestamp: z.string(),
+})
+
+const SessionMetaSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  created_at: z.string(),
+  updated_at: z.string(),
+})
+
+const SessionDetailSchema = SessionMetaSchema.extend({
+  messages: z.array(MessageSchema),
+})
 
 async function fetchSessions(): Promise<SessionMeta[]> {
   const res = await fetch(`${API}/api/chat/sessions`)
   if (!res.ok) throw new Error('Failed to fetch sessions')
-  return res.json() as Promise<SessionMeta[]>
+  return z.array(SessionMetaSchema).parse(await res.json())
 }
 
-async function createSession(firstMessage: string): Promise<SessionDetail> {
+async function createSession(firstMessage: string): Promise<z.infer<typeof SessionDetailSchema>> {
   const res = await fetch(`${API}/api/chat/sessions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ first_message: firstMessage }),
   })
   if (!res.ok) throw new Error('Failed to create session')
-  return res.json() as Promise<SessionDetail>
+  return SessionDetailSchema.parse(await res.json())
 }
 
 async function deleteSessionApi(id: string): Promise<void> {
@@ -38,10 +63,10 @@ async function deleteSessionApi(id: string): Promise<void> {
   if (!res.ok && res.status !== 204) throw new Error('Failed to delete session')
 }
 
-async function fetchSessionDetail(id: string): Promise<SessionDetail> {
+async function fetchSessionDetail(id: string): Promise<z.infer<typeof SessionDetailSchema>> {
   const res = await fetch(`${API}/api/chat/sessions/${id}`)
   if (!res.ok) throw new Error('Failed to fetch session')
-  return res.json() as Promise<SessionDetail>
+  return SessionDetailSchema.parse(await res.json())
 }
 
 export function useChat() {
