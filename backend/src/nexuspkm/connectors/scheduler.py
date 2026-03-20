@@ -84,6 +84,13 @@ class SyncScheduler:
             )
         log.info("sync_job_rescheduled", connector=name, interval_seconds=seconds)
 
+    async def trigger_sync(self, name: str) -> None:
+        """Trigger an immediate sync for the named connector outside of the scheduled interval.
+
+        Runs as a tracked task so shutdown() will await its completion.
+        """
+        await self._tracked_sync_connector(name)
+
     async def shutdown(self) -> None:
         """Stop the scheduler and await all in-flight sync tasks.
 

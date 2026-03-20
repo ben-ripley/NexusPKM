@@ -15,12 +15,13 @@ import structlog
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AwareDatetime, BaseModel, Field
 
+from nexuspkm.config.models import TeamsConnectorConfig
 from nexuspkm.connectors.ms_graph.auth import AuthFlowContext
 from nexuspkm.connectors.ms_graph.teams import TeamsTranscriptConnector
 from nexuspkm.connectors.registry import ConnectorRegistry
 from nexuspkm.connectors.scheduler import SyncScheduler
 
-log = structlog.get_logger()
+log = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/connectors/teams", tags=["connectors"])
 
@@ -46,7 +47,7 @@ class TeamsAuthResponse(BaseModel):
 
 
 class TeamsConfigUpdate(BaseModel):
-    sync_interval_minutes: int = Field(default=30, gt=0)
+    sync_interval_minutes: int = Field(default=30, gt=0, le=1440)
 
 
 class SyncStartedResponse(BaseModel):
@@ -152,7 +153,7 @@ async def trigger_sync(
     if registry.get("teams") is None:
         raise HTTPException(status_code=404, detail="Teams connector not configured")
 
-    background_tasks.add_task(scheduler._sync_connector, "teams")
+    background_tasks.add_task(scheduler.trigger_sync, "teams")
     log.info("teams_sync.manual_trigger")
     return SyncStartedResponse()
 
@@ -164,8 +165,6 @@ async def update_config(
     scheduler: Annotated[SyncScheduler, Depends(get_sync_scheduler)],
 ) -> ConfigUpdatedResponse:
     """Update the Teams connector configuration at runtime."""
-    from nexuspkm.config.models import TeamsConnectorConfig
-
     connector = registry.get("teams")
     if not isinstance(connector, TeamsTranscriptConnector):
         raise HTTPException(status_code=404, detail="Teams connector not configured")

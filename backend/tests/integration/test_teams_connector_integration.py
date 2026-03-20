@@ -74,7 +74,7 @@ class TestFullSyncFlow:
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
-            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("nexuspkm.connectors.ms_graph.teams.httpx.AsyncClient") as mock_client_cls,
         ):
             mock_client = mock_client_cls.return_value.__aenter__.return_value
             mock_client.request = AsyncMock(side_effect=_route_request(handler))
@@ -131,7 +131,7 @@ class TestFullSyncFlow:
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
-            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("nexuspkm.connectors.ms_graph.teams.httpx.AsyncClient") as mock_client_cls,
         ):
             mock_client = mock_client_cls.return_value.__aenter__.return_value
             mock_client.request = AsyncMock(side_effect=mock_request)
@@ -158,7 +158,7 @@ class TestFullSyncFlow:
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
-            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("nexuspkm.connectors.ms_graph.teams.httpx.AsyncClient") as mock_client_cls,
         ):
             mock_client = mock_client_cls.return_value.__aenter__.return_value
             mock_client.request = AsyncMock(side_effect=mock_request)
@@ -186,7 +186,7 @@ class TestFullSyncFlow:
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
-            patch("httpx.AsyncClient") as mock_client_cls,
+            patch("nexuspkm.connectors.ms_graph.teams.httpx.AsyncClient") as mock_client_cls,
         ):
             mock_client = mock_client_cls.return_value.__aenter__.return_value
             mock_client.request = AsyncMock(side_effect=mock_request)

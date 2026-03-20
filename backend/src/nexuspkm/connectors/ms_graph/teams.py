@@ -130,7 +130,7 @@ class TeamsTranscriptConnector(BaseConnector):
             log.warning("teams_connector.no_token_skipping_fetch")
             return
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
             async for meeting in self._list_meetings(client, access_token, since):
                 meeting_id = str(meeting.get("id", ""))
                 if not meeting_id:
@@ -333,6 +333,11 @@ def _parse_meeting_meta(meeting: dict[str, object]) -> _MeetingMeta:
         end_dt = _parse_graph_datetime(end_str)
         duration_minutes = max(0, int((end_dt - start_dt).total_seconds() / 60))
     except (ValueError, TypeError):
+        log.warning(
+            "teams_connector.unparseable_meeting_datetime",
+            start_str=start_str,
+            end_str=end_str,
+        )
         start_dt = datetime.datetime.now(tz=datetime.UTC)
         duration_minutes = 0
 

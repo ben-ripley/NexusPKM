@@ -161,12 +161,13 @@ class TestGetStatus:
 
 
 class TestTriggerSync:
-    def test_returns_sync_started(self, client: TestClient) -> None:
+    def test_returns_sync_started(self, client: TestClient, scheduler: MagicMock) -> None:
         response = client.post("/api/connectors/teams/sync")
 
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "sync_started"
+        scheduler.trigger_sync.assert_called_once_with("teams")
 
     def test_returns_404_when_connector_not_registered(self, scheduler: MagicMock) -> None:
         empty_registry = ConnectorRegistry()
@@ -224,5 +225,12 @@ class TestUpdateConfig:
         response = client.put(
             "/api/connectors/teams/config",
             json={"sync_interval_minutes": 0},
+        )
+        assert response.status_code == 422
+
+    def test_rejects_interval_exceeding_24_hours(self, client: TestClient) -> None:
+        response = client.put(
+            "/api/connectors/teams/config",
+            json={"sync_interval_minutes": 1441},
         )
         assert response.status_code == 422
