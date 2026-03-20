@@ -26,12 +26,13 @@ export async function waitForHealth(
   url: string,
   maxWaitMs: number,
   pollIntervalMs = 500,
+  requestTimeoutMs = 2000,
 ): Promise<void> {
   const deadline = Date.now() + maxWaitMs
 
   while (Date.now() < deadline) {
     try {
-      const resp = await fetch(url, { signal: AbortSignal.timeout(pollIntervalMs) })
+      const resp = await fetch(url, { signal: AbortSignal.timeout(requestTimeoutMs) })
       if (resp.ok) {
         const data: unknown = await resp.json()
         if (

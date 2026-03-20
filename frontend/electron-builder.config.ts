@@ -30,6 +30,7 @@ const config: Configuration = {
   },
 
   dmg: {
+    // electron-builder macro syntax — not a JS template literal; processed at build time
     title: 'NexusPKM ${version}',
     background: 'assets/dmg-background.png',
     icon: 'assets/icon.icns',
