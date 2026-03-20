@@ -4,7 +4,21 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>vite-temp</title>
+    <title>NexusPKM</title>
+    <script>
+      // Prevent FOUC: apply theme class before React renders
+      (function () {
+        try {
+          var stored = JSON.parse(localStorage.getItem('nexuspkm-theme') || '{}');
+          var theme = stored.state && stored.state.theme;
+          var isDark =
+            theme === 'dark' ||
+            (theme !== 'light' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) document.documentElement.classList.add('dark');
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
