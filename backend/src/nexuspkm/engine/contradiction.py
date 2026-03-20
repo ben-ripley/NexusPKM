@@ -54,7 +54,15 @@ class ContradictionDetector:
 
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
-        self._ensure_schema()
+
+    @property
+    def db_path(self) -> Path:
+        return self._db_path
+
+    async def init(self) -> None:
+        """Create tables if they do not exist (call once at startup)."""
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._ensure_schema)
 
     def _ensure_schema(self) -> None:
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -202,4 +210,4 @@ class ContradictionDetector:
                 "UPDATE contradictions SET resolved=1, resolved_at=? WHERE id=?",
                 (now, contradiction_id),
             )
-        return cursor.rowcount > 0
+            return cursor.rowcount > 0

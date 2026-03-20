@@ -162,18 +162,29 @@ class ExtractionQueue:
 
     def _claim_next_sync(self) -> tuple[str, str, int] | None:
         now = datetime.now(tz=UTC).isoformat()
-        with sqlite3.connect(self._db_path) as conn:
+        # Use isolation_level=None (autocommit) so we can issue BEGIN IMMEDIATE
+        # explicitly, preventing two concurrent workers from claiming the same row.
+        conn = sqlite3.connect(self._db_path, isolation_level=None)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT id, document_json, retry_count FROM extraction_queue "
                 "WHERE status='pending' ORDER BY enqueued_at ASC LIMIT 1"
             ).fetchone()
             if row is None:
+                conn.execute("ROLLBACK")
                 return None
             row_id, doc_json, retry_count = row
             conn.execute(
                 "UPDATE extraction_queue SET status='processing', attempted_at=? WHERE id=?",
                 (now, row_id),
             )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.close()
         return row_id, doc_json, retry_count
 
     async def _mark_done(self, row_id: str) -> None:

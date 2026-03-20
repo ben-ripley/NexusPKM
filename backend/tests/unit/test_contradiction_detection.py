@@ -25,8 +25,10 @@ def db_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def detector(db_path: Path) -> ContradictionDetector:
-    return ContradictionDetector(db_path)
+async def detector(db_path: Path) -> ContradictionDetector:
+    det = ContradictionDetector(db_path)
+    await det.init()
+    return det
 
 
 # ---------------------------------------------------------------------------
@@ -34,8 +36,10 @@ def detector(db_path: Path) -> ContradictionDetector:
 # ---------------------------------------------------------------------------
 
 
-def test_detector_creates_table(db_path: Path) -> None:
-    ContradictionDetector(db_path)
+@pytest.mark.asyncio
+async def test_detector_creates_table(db_path: Path) -> None:
+    det = ContradictionDetector(db_path)
+    await det.init()
     conn = sqlite3.connect(db_path)
     cursor = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='contradictions'"

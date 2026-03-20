@@ -17,7 +17,6 @@ import asyncio
 import threading
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import structlog
@@ -49,13 +48,13 @@ class EntityExtractionPipeline:
         deduplicator: EntityDeduplicator,
         graph_store: GraphStore,
         graph_lock: threading.Lock,
-        contradiction_db_path: Path,
+        contradiction_detector: ContradictionDetector,
     ) -> None:
         self._extractor = extractor
         self._deduplicator = deduplicator
         self._graph_store = graph_store
         self._graph_lock = graph_lock
-        self._contradiction_detector = ContradictionDetector(contradiction_db_path)
+        self._contradiction_detector = contradiction_detector
 
     async def process(self, document: Document) -> None:
         """Run the full pipeline for one document."""

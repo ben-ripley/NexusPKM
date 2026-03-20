@@ -14,7 +14,7 @@ Spec: F-006 API endpoints
 
 from __future__ import annotations
 
-from pathlib import Path
+import asyncio
 from typing import Annotated, Any, Literal
 
 import structlog
@@ -50,10 +50,10 @@ def get_extraction_queue() -> ExtractionQueue:
     )
 
 
-def get_contradiction_db_path() -> Path:
-    """Dependency: returns the path to the contradictions SQLite database."""
+def get_contradiction_detector() -> ContradictionDetector:
+    """Dependency: returns the shared ContradictionDetector instance."""
     raise HTTPException(  # pragma: no cover
-        status_code=503, detail="Contradiction database not initialised"
+        status_code=503, detail="Contradiction detector not initialised"
     )
 
 
@@ -143,8 +143,6 @@ async def list_entities(
     name: str | None = None,
 ) -> list[EntityResponse]:
     """List entities with optional type and name (substring) filters."""
-    import asyncio
-
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _list_entities_sync, graph_store, type, name)
 
@@ -181,8 +179,6 @@ async def merge_entities(
 
     Removes the source entity node. The target node is preserved.
     """
-    import asyncio
-
     loop = asyncio.get_running_loop()
     found = await loop.run_in_executor(None, _merge_entities_sync, graph_store, payload.source_id)
     if not found:
@@ -212,8 +208,6 @@ async def get_entity(
     graph_store: Annotated[GraphStore, Depends(get_graph_store)],
 ) -> EntityDetailResponse:
     """Return entity detail including its relationships."""
-    import asyncio
-
     loop = asyncio.get_running_loop()
     entity = await loop.run_in_executor(None, _get_entity_sync, graph_store, entity_id)
     if entity is None:
@@ -261,8 +255,6 @@ async def list_relationships(
     entity_id: str | None = None,
 ) -> list[RelationshipResponse]:
     """List relationships with optional rel_type and entity_id filters."""
-    import asyncio
-
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, _list_relationships_sync, graph_store, type, entity_id)
 
@@ -314,10 +306,9 @@ async def extraction_status(
 
 @router.get("/api/contradictions", response_model=list[ContradictionResponse])
 async def list_contradictions(
-    db_path: Annotated[Path, Depends(get_contradiction_db_path)],
+    detector: Annotated[ContradictionDetector, Depends(get_contradiction_detector)],
 ) -> list[ContradictionResponse]:
     """Return all unresolved contradictions."""
-    detector = ContradictionDetector(db_path)
     items = await detector.list_unresolved()
     return [
         ContradictionResponse(
@@ -343,10 +334,9 @@ async def list_contradictions(
 @router.post("/api/contradictions/{contradiction_id}/resolve", response_model=ResolveResponse)
 async def resolve_contradiction(
     contradiction_id: str,
-    db_path: Annotated[Path, Depends(get_contradiction_db_path)],
+    detector: Annotated[ContradictionDetector, Depends(get_contradiction_detector)],
 ) -> ResolveResponse:
     """Mark a contradiction as resolved."""
-    detector = ContradictionDetector(db_path)
     found = await detector.resolve(contradiction_id)
     if not found:
         raise HTTPException(status_code=404, detail="Contradiction not found")

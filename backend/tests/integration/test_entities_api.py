@@ -15,7 +15,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from nexuspkm.api.entities import get_contradiction_db_path, get_extraction_queue, get_graph_store
+from nexuspkm.api.entities import get_contradiction_detector, get_extraction_queue, get_graph_store
+from nexuspkm.engine.contradiction import ContradictionDetector
 from nexuspkm.engine.extraction_queue import ExtractionQueue
 from nexuspkm.engine.graph_store import GraphStore, PersonNode, ProjectNode
 from nexuspkm.main import app
@@ -40,26 +41,28 @@ def queue(tmp_path: Path) -> ExtractionQueue:
 
 
 @pytest.fixture
-def contradiction_db_path(tmp_path: Path) -> Path:
-    return tmp_path / "contradictions.db"
+def contradiction_detector(tmp_path: Path) -> ContradictionDetector:
+    detector = ContradictionDetector(tmp_path / "contradictions.db")
+    asyncio.run(detector.init())
+    return detector
 
 
 @pytest.fixture
 def client(
     graph_store: GraphStore,
     queue: ExtractionQueue,
-    contradiction_db_path: Path,
+    contradiction_detector: ContradictionDetector,
 ) -> Generator[TestClient, None, None]:
     # Do NOT use context manager — keeps lifespan from running and overwriting overrides
     app.dependency_overrides[get_graph_store] = lambda: graph_store
     app.dependency_overrides[get_extraction_queue] = lambda: queue
-    app.dependency_overrides[get_contradiction_db_path] = lambda: contradiction_db_path
+    app.dependency_overrides[get_contradiction_detector] = lambda: contradiction_detector
     try:
         yield TestClient(app)
     finally:
         app.dependency_overrides.pop(get_graph_store, None)
         app.dependency_overrides.pop(get_extraction_queue, None)
-        app.dependency_overrides.pop(get_contradiction_db_path, None)
+        app.dependency_overrides.pop(get_contradiction_detector, None)
 
 
 # ---------------------------------------------------------------------------
@@ -200,10 +203,10 @@ def test_list_contradictions_empty(client: TestClient) -> None:
 
 
 def test_list_contradictions_returns_unresolved(
-    client: TestClient, contradiction_db_path: Path
+    client: TestClient, contradiction_detector: ContradictionDetector
 ) -> None:
     # Directly insert a contradiction into the DB
-    conn = sqlite3.connect(contradiction_db_path)
+    conn = sqlite3.connect(contradiction_detector.db_path)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS contradictions ("
         "id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, "
@@ -242,8 +245,10 @@ def test_list_contradictions_returns_unresolved(
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_contradiction(client: TestClient, contradiction_db_path: Path) -> None:
-    conn = sqlite3.connect(contradiction_db_path)
+def test_resolve_contradiction(
+    client: TestClient, contradiction_detector: ContradictionDetector
+) -> None:
+    conn = sqlite3.connect(contradiction_detector.db_path)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS contradictions ("
         "id TEXT PRIMARY KEY, entity_id TEXT NOT NULL, "
@@ -273,7 +278,7 @@ def test_resolve_contradiction(client: TestClient, contradiction_db_path: Path) 
     response = client.post("/api/contradictions/c-resolve/resolve")
     assert response.status_code == 200
 
-    conn = sqlite3.connect(contradiction_db_path)
+    conn = sqlite3.connect(contradiction_detector.db_path)
     row = conn.execute("SELECT resolved FROM contradictions WHERE id='c-resolve'").fetchone()
     conn.close()
     assert row[0] == 1

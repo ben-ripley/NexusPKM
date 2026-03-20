@@ -75,12 +75,14 @@ async def test_pipeline_stores_person_in_graph(tmp_path: Path) -> None:
 
     extractor = EntityExtractor(provider)
     deduplicator = EntityDeduplicator(graph_store, graph_lock)
+    contradiction_detector = ContradictionDetector(tmp_path / "contradictions.db")
+    await contradiction_detector.init()
     pipeline = EntityExtractionPipeline(
         extractor,
         deduplicator,
         graph_store,
         graph_lock,
-        tmp_path / "contradictions.db",
+        contradiction_detector,
     )
 
     doc = _make_document()
@@ -120,12 +122,14 @@ async def test_pipeline_stores_project_in_graph(tmp_path: Path) -> None:
 
     extractor = EntityExtractor(provider)
     deduplicator = EntityDeduplicator(graph_store, graph_lock)
+    contradiction_detector = ContradictionDetector(tmp_path / "contradictions.db")
+    await contradiction_detector.init()
     pipeline = EntityExtractionPipeline(
         extractor,
         deduplicator,
         graph_store,
         graph_lock,
-        tmp_path / "contradictions.db",
+        contradiction_detector,
     )
 
     await pipeline.process(_make_document())
@@ -160,8 +164,10 @@ async def test_pipeline_deduplicates_existing_entity(tmp_path: Path) -> None:
 
     extractor = EntityExtractor(provider)
     deduplicator = EntityDeduplicator(graph_store, graph_lock)
+    contradiction_detector = ContradictionDetector(tmp_path / "contradictions.db")
+    await contradiction_detector.init()
     pipeline = EntityExtractionPipeline(
-        extractor, deduplicator, graph_store, graph_lock, tmp_path / "contradictions.db"
+        extractor, deduplicator, graph_store, graph_lock, contradiction_detector
     )
 
     await pipeline.process(_make_document("doc-1"))
@@ -216,16 +222,16 @@ async def test_pipeline_detects_contradiction(tmp_path: Path) -> None:
 
     extractor = EntityExtractor(provider)
     deduplicator = EntityDeduplicator(graph_store, graph_lock)
-    contradiction_db = tmp_path / "contradictions.db"
+    contradiction_detector = ContradictionDetector(tmp_path / "contradictions.db")
+    await contradiction_detector.init()
     pipeline = EntityExtractionPipeline(
-        extractor, deduplicator, graph_store, graph_lock, contradiction_db
+        extractor, deduplicator, graph_store, graph_lock, contradiction_detector
     )
 
     await pipeline.process(_make_document("doc-c1"))
     await pipeline.process(_make_document("doc-c2"))
 
-    detector = ContradictionDetector(contradiction_db)
-    unresolved = await detector.list_unresolved()
+    unresolved = await contradiction_detector.list_unresolved()
     assert len(unresolved) >= 1
     assert any(c.field_name == "status" for c in unresolved)
 
@@ -245,8 +251,10 @@ async def test_pipeline_handles_empty_extraction(tmp_path: Path) -> None:
 
     extractor = EntityExtractor(provider)
     deduplicator = EntityDeduplicator(graph_store, graph_lock)
+    contradiction_detector = ContradictionDetector(tmp_path / "contradictions.db")
+    await contradiction_detector.init()
     pipeline = EntityExtractionPipeline(
-        extractor, deduplicator, graph_store, graph_lock, tmp_path / "contradictions.db"
+        extractor, deduplicator, graph_store, graph_lock, contradiction_detector
     )
 
     # Should not raise
