@@ -35,9 +35,9 @@ describe('TopBar', () => {
 
   it('renders a settings link to /settings', () => {
     renderTopBar()
-    // Button renders as <a> with role="button" via base-ui
-    const settingsEl = screen.getByRole('button', { name: /settings/i }).closest('a') ??
-      screen.getByRole('button', { name: /settings/i })
-    expect(settingsEl).toHaveAttribute('href', '/settings')
+    const settingsButton = screen.getByRole('button', { name: /settings/i })
+    // base-ui Button renders as <a> with role="button" when render={<Link />}
+    expect(settingsButton.tagName).toBe('A')
+    expect(settingsButton).toHaveAttribute('href', '/settings')
   })
 })

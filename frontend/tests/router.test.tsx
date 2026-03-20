@@ -7,6 +7,7 @@ import ChatPage from '@/pages/ChatPage'
 import SearchPage from '@/pages/SearchPage'
 import GraphPage from '@/pages/GraphPage'
 import SettingsPage from '@/pages/SettingsPage'
+import NotFoundPage from '@/pages/NotFoundPage'
 
 const routes = [
   {
@@ -17,6 +18,7 @@ const routes = [
       { path: 'search', element: <SearchPage /> },
       { path: 'graph', element: <GraphPage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ]
@@ -52,5 +54,12 @@ describe('Router', () => {
   it('renders Settings at /settings', () => {
     renderRoute('/settings')
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument()
+  })
+
+  it('renders Not Found page for unknown routes', () => {
+    renderRoute('/unknown-page')
+    expect(screen.getByRole('heading', { name: 'Page Not Found' })).toBeInTheDocument()
+    expect(screen.getByText("The page you're looking for doesn't exist.")).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Go to Dashboard' })).toBeInTheDocument()
   })
 })

@@ -5,26 +5,11 @@ describe('useThemeStore', () => {
   beforeEach(() => {
     localStorage.clear()
     document.documentElement.classList.remove('dark')
-
-    vi.stubGlobal(
-      'matchMedia',
-      vi.fn((query: string) => ({
-        matches: false,
-        media: query,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }))
-    )
-
     vi.resetModules()
   })
 
   afterEach(() => {
-    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
   })
 
   it('defaults to system theme', async () => {
@@ -61,20 +46,30 @@ describe('useThemeStore', () => {
     expect(stored.state.theme).toBe('dark')
   })
 
-  it('system theme applies dark class when OS prefers dark', async () => {
-    vi.stubGlobal(
-      'matchMedia',
-      vi.fn((query: string) => ({
-        matches: query.includes('dark'),
-        media: query,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }))
+  it('does not persist resolvedTheme to localStorage', async () => {
+    const { useThemeStore } = await import('@/stores/theme')
+    act(() => {
+      useThemeStore.getState().setTheme('dark')
+    })
+    const stored = JSON.parse(
+      localStorage.getItem('nexuspkm-theme') ?? '{}'
     )
+    expect(stored.state).not.toHaveProperty('resolvedTheme')
+  })
+
+  it('system theme applies dark class when OS prefers dark', async () => {
+    // Override matchMedia to report dark preference
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: query.includes('dark'),
+      media: query,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as typeof window.matchMedia
 
     vi.resetModules()
     const { useThemeStore } = await import('@/stores/theme')
@@ -82,6 +77,8 @@ describe('useThemeStore', () => {
       useThemeStore.getState().setTheme('system')
     })
     expect(document.documentElement.classList.contains('dark')).toBe(true)
+
+    window.matchMedia = originalMatchMedia
   })
 
   it('resolvedTheme returns the effective theme', async () => {
@@ -90,5 +87,85 @@ describe('useThemeStore', () => {
       useThemeStore.getState().setTheme('dark')
     })
     expect(useThemeStore.getState().resolvedTheme).toBe('dark')
+  })
+
+  it('subscribeToSystemTheme updates resolvedTheme when OS preference changes', async () => {
+    let changeHandler: (() => void) | undefined
+    const originalMatchMedia = window.matchMedia
+    let currentMatches = false
+
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: currentMatches && query.includes('dark'),
+      media: query,
+      addEventListener: vi.fn((_event: string, handler: () => void) => {
+        changeHandler = handler
+      }),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as typeof window.matchMedia
+
+    vi.resetModules()
+    const { useThemeStore, subscribeToSystemTheme } = await import('@/stores/theme')
+
+    // Set to system theme and subscribe
+    act(() => {
+      useThemeStore.getState().setTheme('system')
+    })
+    const cleanup = subscribeToSystemTheme()
+
+    expect(useThemeStore.getState().resolvedTheme).toBe('light')
+
+    // Simulate OS switching to dark
+    currentMatches = true
+    act(() => {
+      changeHandler?.()
+    })
+    expect(useThemeStore.getState().resolvedTheme).toBe('dark')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+
+    cleanup()
+    window.matchMedia = originalMatchMedia
+  })
+
+  it('subscribeToSystemTheme does not update when theme is not system', async () => {
+    let changeHandler: (() => void) | undefined
+    const originalMatchMedia = window.matchMedia
+    let currentMatches = false
+
+    window.matchMedia = vi.fn((query: string) => ({
+      matches: currentMatches && query.includes('dark'),
+      media: query,
+      addEventListener: vi.fn((_event: string, handler: () => void) => {
+        changeHandler = handler
+      }),
+      removeEventListener: vi.fn(),
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })) as typeof window.matchMedia
+
+    vi.resetModules()
+    const { useThemeStore, subscribeToSystemTheme } = await import('@/stores/theme')
+
+    // Set to explicit light theme
+    act(() => {
+      useThemeStore.getState().setTheme('light')
+    })
+    const cleanup = subscribeToSystemTheme()
+
+    // Simulate OS switching to dark — should be ignored
+    currentMatches = true
+    act(() => {
+      changeHandler?.()
+    })
+    expect(useThemeStore.getState().resolvedTheme).toBe('light')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+
+    cleanup()
+    window.matchMedia = originalMatchMedia
   })
 })

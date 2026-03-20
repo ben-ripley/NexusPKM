@@ -5,6 +5,7 @@ import ChatPage from '@/pages/ChatPage'
 import SearchPage from '@/pages/SearchPage'
 import GraphPage from '@/pages/GraphPage'
 import SettingsPage from '@/pages/SettingsPage'
+import NotFoundPage from '@/pages/NotFoundPage'
 
 export const router = createBrowserRouter([
   {
@@ -15,6 +16,7 @@ export const router = createBrowserRouter([
       { path: 'search', element: <SearchPage /> },
       { path: 'graph', element: <GraphPage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: '*', element: <NotFoundPage /> },
     ],
   },
 ])

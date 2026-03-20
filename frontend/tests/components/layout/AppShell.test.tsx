@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { createMemoryRouter, RouterProvider } from 'react-router-dom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { AppShell } from '@/components/layout/AppShell'
 
 function renderShell(initialRoute = '/') {
@@ -20,36 +20,6 @@ function renderShell(initialRoute = '/') {
 }
 
 describe('AppShell', () => {
-  beforeEach(() => {
-    vi.stubGlobal('localStorage', {
-      getItem: vi.fn(() => null),
-      setItem: vi.fn(),
-      removeItem: vi.fn(),
-      clear: vi.fn(),
-      length: 0,
-      key: vi.fn(() => null),
-    })
-
-    vi.stubGlobal(
-      'matchMedia',
-      vi.fn((query: string) => ({
-        matches: false,
-        media: query,
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-        onchange: null,
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        dispatchEvent: vi.fn(),
-      }))
-    )
-  })
-
-  afterEach(() => {
-    vi.unstubAllGlobals()
-    vi.resetModules()
-  })
-
   it('renders the sidebar navigation', () => {
     renderShell()
     expect(screen.getByText('Dashboard')).toBeInTheDocument()

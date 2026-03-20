@@ -23,24 +23,28 @@ function applyTheme(resolved: 'light' | 'dark') {
   }
 }
 
+function resolveTheme(theme: Theme): 'light' | 'dark' {
+  return theme === 'system' ? getSystemTheme() : theme
+}
+
 export const useThemeStore = create<ThemeState>()(
   persist(
     (set) => ({
       theme: 'system',
       resolvedTheme: getSystemTheme(),
       setTheme: (theme: Theme) => {
-        const resolved = theme === 'system' ? getSystemTheme() : theme
+        const resolved = resolveTheme(theme)
         applyTheme(resolved)
         set({ theme, resolvedTheme: resolved })
       },
     }),
     {
       name: 'nexuspkm-theme',
+      partialize: (state) => ({ theme: state.theme }),
       onRehydrateStorage: () => {
         return (state) => {
           if (state) {
-            const resolved =
-              state.theme === 'system' ? getSystemTheme() : state.theme
+            const resolved = resolveTheme(state.theme)
             applyTheme(resolved)
             state.resolvedTheme = resolved
           }
@@ -50,14 +54,16 @@ export const useThemeStore = create<ThemeState>()(
   )
 )
 
-// Listen for system theme changes
-window
-  .matchMedia('(prefers-color-scheme: dark)')
-  .addEventListener('change', () => {
+export function subscribeToSystemTheme() {
+  const mql = window.matchMedia('(prefers-color-scheme: dark)')
+  const handler = () => {
     const { theme } = useThemeStore.getState()
     if (theme === 'system') {
       const resolved = getSystemTheme()
       applyTheme(resolved)
       useThemeStore.setState({ resolvedTheme: resolved })
     }
-  })
+  }
+  mql.addEventListener('change', handler)
+  return () => mql.removeEventListener('change', handler)
+}
