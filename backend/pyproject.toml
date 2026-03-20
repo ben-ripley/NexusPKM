@@ -23,6 +23,7 @@ dependencies = [
     "kuzu>=0.11.3",
     "msal>=1.31,<2",
     "cryptography>=43.0",
+    "watchfiles>=0.21",
 ]
 
 [project.optional-dependencies]
@@ -80,4 +81,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "msal.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "watchfiles.*"
 ignore_missing_imports = true

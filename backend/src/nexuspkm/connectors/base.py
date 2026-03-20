@@ -95,3 +95,11 @@ class BaseConnector(ABC):
         Async to support implementations that write to a database or file.
         """
         ...
+
+    async def fetch_deleted_ids(self, since: datetime.datetime | None = None) -> list[str]:
+        """Return doc IDs that should be deleted before the next fetch.
+
+        Default implementation returns an empty list.  Override in connectors
+        that track deletions (e.g. Obsidian filesystem scanner).
+        """
+        return []

@@ -162,6 +162,11 @@ class SyncScheduler:
         try:
             sync_state = await connector.get_sync_state()
             since = sync_state.last_synced_at
+
+            deleted_ids = await connector.fetch_deleted_ids(since)
+            for doc_id in deleted_ids:
+                await self._index.delete(doc_id)
+
             async for doc in connector.fetch(since):
                 await self._index.insert(doc)
                 docs_synced += 1

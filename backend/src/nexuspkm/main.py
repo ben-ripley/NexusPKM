@@ -9,6 +9,7 @@ from nexuspkm.api.connectors import get_connector_registry, get_sync_scheduler
 from nexuspkm.api.connectors import router as connectors_router
 from nexuspkm.api.engine import get_knowledge_index
 from nexuspkm.api.engine import router as engine_router
+from nexuspkm.api.obsidian import router as obsidian_router
 from nexuspkm.api.providers import get_registry
 from nexuspkm.api.providers import router as providers_router
 from nexuspkm.config.loader import load_config
@@ -66,10 +67,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         intervals["teams"] = config.connectors.teams.sync_interval_minutes * 60
         log.info("teams_connector_registered")
 
+    _obsidian_connector = None
+    if config.connectors.obsidian.enabled and config.connectors.obsidian.vault_path:
+        from nexuspkm.connectors.obsidian.connector import ObsidianNotesConnector
+
+        _obsidian_connector = ObsidianNotesConnector(
+            vault_path=config.connectors.obsidian.vault_path,
+            state_dir=data_dir / "connectors",
+            config=config.connectors.obsidian,
+        )
+        _connector_registry.register(_obsidian_connector)
+        intervals["obsidian"] = config.connectors.obsidian.sync_interval_minutes * 60
+        log.info("obsidian_connector_registered")
+
     _sync_scheduler = SyncScheduler(_connector_registry, _knowledge_index)
     app.dependency_overrides[get_connector_registry] = lambda: _connector_registry
     app.dependency_overrides[get_sync_scheduler] = lambda: _sync_scheduler
+
+    from nexuspkm.api.obsidian import (
+        get_connector_registry as obs_get_registry,
+    )
+    from nexuspkm.api.obsidian import (
+        get_sync_scheduler as obs_get_scheduler,
+    )
+
+    app.dependency_overrides[obs_get_registry] = lambda: _connector_registry
+    app.dependency_overrides[obs_get_scheduler] = lambda: _sync_scheduler
     _sync_scheduler.start(intervals)
+
+    if _obsidian_connector is not None and _knowledge_index is not None:
+        await _obsidian_connector.start_watching(
+            on_upsert=_knowledge_index.insert,
+            on_delete=_knowledge_index.delete,
+        )
 
     log.info(
         "nexuspkm_started",
@@ -78,6 +108,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     yield
 
+    if _obsidian_connector is not None:
+        await _obsidian_connector.stop_watching()
     if _sync_scheduler:
         await _sync_scheduler.shutdown()
     if _vector_store:
@@ -96,6 +128,7 @@ app = FastAPI(title="NexusPKM", lifespan=lifespan)
 app.include_router(providers_router)
 app.include_router(engine_router)
 app.include_router(connectors_router)
+app.include_router(obsidian_router)
 
 
 @app.get("/health")
