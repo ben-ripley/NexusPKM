@@ -1,31 +1,15 @@
-import type { ReactNode } from 'react'
-import { AlertCircle, CheckCircle, Clock, RefreshCw, XCircle } from 'lucide-react'
+import { AlertTriangle, Clock, RefreshCw } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { fetchConnectorStatuses, triggerConnectorSync } from '@/services/api'
-import type { ConnectorStatus } from '@/services/api'
-
-const STATUS_CONFIG: Record<ConnectorStatus['status'], { icon: ReactNode; badge: string }> = {
-  healthy: {
-    icon: <CheckCircle className="size-4 text-green-500" />,
-    badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  },
-  degraded: {
-    icon: <AlertCircle className="size-4 text-yellow-500" />,
-    badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  },
-  unavailable: {
-    icon: <XCircle className="size-4 text-red-500" />,
-    badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  },
-}
 
 export default function ConnectorSettings() {
   const queryClient = useQueryClient()
-  const { data: connectors = [], isLoading } = useQuery({
+  const { data: connectors = [], isLoading, isError } = useQuery({
     queryKey: ['connectors', 'status'],
     queryFn: fetchConnectorStatuses,
   })
@@ -47,11 +31,18 @@ export default function ConnectorSettings() {
         </div>
       )}
 
-      {!isLoading && connectors.length === 0 && (
+      {isError && (
+        <p className="flex items-center gap-2 text-sm text-red-500">
+          <AlertTriangle className="size-4" />
+          Failed to load connector status
+        </p>
+      )}
+
+      {!isLoading && !isError && connectors.length === 0 && (
         <p className="py-4 text-center text-sm text-muted-foreground">No connectors configured</p>
       )}
 
-      {!isLoading && connectors.length > 0 && (
+      {!isLoading && !isError && connectors.length > 0 && (
         <div className="space-y-2">
           {connectors.map((c) => {
             const cfg = STATUS_CONFIG[c.status]
@@ -72,7 +63,9 @@ export default function ConnectorSettings() {
                       onClick={() => syncMutation.mutate(c.name)}
                       aria-label={`Sync ${c.name}`}
                     >
-                      <RefreshCw className={cn('size-3', syncingName === c.name && 'animate-spin')} />
+                      <RefreshCw
+                        className={cn('size-3', syncingName === c.name && 'animate-spin')}
+                      />
                       Sync
                     </Button>
                   </div>

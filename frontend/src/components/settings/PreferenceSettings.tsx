@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Monitor, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { useThemeStore } from '@/stores/theme'
 import type { Theme } from '@/stores/theme'
@@ -24,6 +25,7 @@ export default function PreferenceSettings() {
           {THEME_OPTIONS.map((opt) => (
             <Button
               key={opt.value}
+              type="button"
               variant={theme === opt.value ? 'default' : 'outline'}
               size="sm"
               className={cn('gap-2', theme === opt.value && 'ring-2 ring-ring ring-offset-2')}
@@ -40,13 +42,10 @@ export default function PreferenceSettings() {
         <h2 className="mb-4 text-sm font-semibold">Notifications</h2>
         <label className="flex cursor-pointer items-center justify-between gap-4">
           <span className="text-sm">Enable notifications</span>
-          <input
-            type="checkbox"
-            role="checkbox"
-            aria-label="notifications enabled"
+          <Switch
             checked={notificationsEnabled}
-            onChange={(e) => setNotificationsEnabled(e.target.checked)}
-            className="size-4 cursor-pointer accent-primary"
+            onCheckedChange={setNotificationsEnabled}
+            aria-label="notifications enabled"
           />
         </label>
       </div>

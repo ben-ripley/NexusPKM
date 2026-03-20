@@ -1,26 +1,10 @@
-import type { ReactNode } from 'react'
-import { AlertCircle, CheckCircle, XCircle } from 'lucide-react'
+import { AlertTriangle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { STATUS_CONFIG } from '@/lib/statusConfig'
 import { fetchProvidersHealth, fetchActiveProviders } from '@/services/api'
-import type { ProviderHealth } from '@/services/api'
-
-const STATUS_CONFIG: Record<ProviderHealth['status'], { icon: ReactNode; badge: string }> = {
-  healthy: {
-    icon: <CheckCircle className="size-4 text-green-500" />,
-    badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  },
-  degraded: {
-    icon: <AlertCircle className="size-4 text-yellow-500" />,
-    badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  },
-  unavailable: {
-    icon: <XCircle className="size-4 text-red-500" />,
-    badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  },
-}
 
 export default function ProviderSettings() {
   const healthQuery = useQuery({
@@ -44,6 +28,11 @@ export default function ProviderSettings() {
             <Skeleton className="h-4 w-48" />
             <Skeleton className="h-4 w-48" />
           </div>
+        ) : activeQuery.isError ? (
+          <p className="flex items-center gap-2 text-sm text-red-500">
+            <AlertTriangle className="size-4" />
+            Failed to load provider configuration
+          </p>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-3 text-sm">
@@ -68,31 +57,43 @@ export default function ProviderSettings() {
               <Skeleton key={i} className="h-10 w-full" />
             ))}
           </div>
+        ) : healthQuery.isError ? (
+          <p className="flex items-center gap-2 text-sm text-red-500">
+            <AlertTriangle className="size-4" />
+            Failed to load provider health
+          </p>
         ) : health && Object.keys(health).length > 0 ? (
           <div className="space-y-2">
-            {Object.entries(health).map(([name, info]) => {
-              const cfg = STATUS_CONFIG[info.status]
-              return (
-                <div key={name} className="flex items-center justify-between rounded-md border p-3">
-                  <div className="flex items-center gap-3">
-                    {cfg.icon}
-                    <span className="text-sm font-medium">{name}</span>
+            {Object.entries(health)
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([name, info]) => {
+                const cfg = STATUS_CONFIG[info.status]
+                return (
+                  <div
+                    key={name}
+                    className="flex items-center justify-between rounded-md border p-3"
+                  >
+                    <div className="flex items-center gap-3">
+                      {cfg.icon}
+                      <span className="text-sm font-medium">{name}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {info.error && (
+                        <span className="text-xs text-red-500" title={info.error}>
+                          {info.error}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground">{info.latency_ms}ms</span>
+                      <Badge className={cn('text-xs capitalize', cfg.badge)}>{info.status}</Badge>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    {info.error && (
-                      <span className="text-xs text-red-500" title={info.error}>
-                        {info.error}
-                      </span>
-                    )}
-                    <span className="text-xs text-muted-foreground">{info.latency_ms}ms</span>
-                    <Badge className={cn('text-xs capitalize', cfg.badge)}>{info.status}</Badge>
-                  </div>
-                </div>
-              )
-            })}
+                )
+              })}
           </div>
         ) : (
-          <p className="py-4 text-center text-sm text-muted-foreground">No provider data available</p>
+          <p className="py-4 text-center text-sm text-muted-foreground">
+            No provider data available
+          </p>
         )}
       </div>
     </div>
