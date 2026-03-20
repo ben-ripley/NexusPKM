@@ -14,5 +14,8 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    alias: {
+      'react-force-graph': path.resolve(__dirname, './src/test/mocks/react-force-graph.tsx'),
+    },
   },
 })
