@@ -272,3 +272,41 @@ export async function fetchRelationships(type?: string, entityId?: string): Prom
   if (!res.ok) throw new Error(`Failed to fetch relationships: ${res.status}`)
   return z.array(GraphRelationshipSchema).parse(await res.json())
 }
+
+// ---------------------------------------------------------------------------
+// Settings schemas (F-009)
+// ---------------------------------------------------------------------------
+
+const ProviderHealthSchema = z.object({
+  status: z.enum(['healthy', 'degraded', 'unavailable']),
+  latency_ms: z.number(),
+  error: z.string().optional(),
+})
+
+const ActiveProvidersSchema = z.object({
+  llm: z.object({ provider: z.string(), model: z.string() }),
+  embedding: z.object({ provider: z.string(), model: z.string() }),
+})
+
+// ---------------------------------------------------------------------------
+// Settings exported types
+// ---------------------------------------------------------------------------
+
+export type ProviderHealth = z.infer<typeof ProviderHealthSchema>
+export type ActiveProviders = z.infer<typeof ActiveProvidersSchema>
+
+// ---------------------------------------------------------------------------
+// Settings API functions
+// ---------------------------------------------------------------------------
+
+export async function fetchProvidersHealth(): Promise<Record<string, ProviderHealth>> {
+  const res = await fetch(`${API}/api/providers/health`)
+  if (!res.ok) throw new Error(`Failed to fetch providers health: ${res.status}`)
+  return z.record(z.string(), ProviderHealthSchema).parse(await res.json())
+}
+
+export async function fetchActiveProviders(): Promise<ActiveProviders> {
+  const res = await fetch(`${API}/api/providers/active`)
+  if (!res.ok) throw new Error(`Failed to fetch active providers: ${res.status}`)
+  return ActiveProvidersSchema.parse(await res.json())
+}
