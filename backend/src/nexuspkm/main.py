@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from nexuspkm.api.chat import get_chat_service
+from nexuspkm.api.chat import router as chat_router
 from nexuspkm.api.connectors import generic_router as generic_connectors_router
 from nexuspkm.api.connectors import get_connector_registry, get_sync_scheduler
 from nexuspkm.api.connectors import router as connectors_router
@@ -29,10 +31,12 @@ from nexuspkm.engine import (
     EntityExtractor,
     ExtractionQueue,
     GraphStore,
+    HybridRetriever,
     KnowledgeIndex,
     VectorStore,
 )
 from nexuspkm.providers.registry import ProviderRegistry
+from nexuspkm.services.chat import ChatService
 
 log = structlog.get_logger()
 
@@ -44,12 +48,14 @@ _connector_registry: ConnectorRegistry | None = None
 _sync_scheduler: SyncScheduler | None = None
 _extraction_queue: ExtractionQueue | None = None
 _contradiction_detector: ContradictionDetector | None = None
+_chat_service: ChatService | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _registry, _knowledge_index, _vector_store, _graph_store
     global _connector_registry, _sync_scheduler, _extraction_queue, _contradiction_detector
+    global _chat_service
     config = await asyncio.to_thread(load_config)
     _registry = ProviderRegistry(config.providers)
     app.dependency_overrides[get_registry] = lambda: _registry
@@ -101,6 +107,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         _contradiction_detector,
     )
     _extraction_queue.start(_pipeline, concurrency=2)
+
+    _retriever = HybridRetriever(
+        _vector_store,
+        _graph_store,
+        embedding_provider,
+        graph_lock=_knowledge_index.graph_lock,
+    )
+    _chat_service = ChatService(_retriever, llm_provider, data_dir / "chat.db")
+    await _chat_service.init()
+    app.dependency_overrides[get_chat_service] = lambda: _chat_service
 
     _connector_registry = ConnectorRegistry()
     intervals: dict[str, int] = {}
@@ -168,6 +184,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _vector_store.close()
     if _graph_store:
         await asyncio.to_thread(_graph_store.close)
+    _chat_service = None
     _registry = None
     _knowledge_index = None
     _vector_store = None
@@ -185,6 +202,7 @@ app.include_router(connectors_router)
 app.include_router(obsidian_router)
 app.include_router(generic_connectors_router)
 app.include_router(entities_router)
+app.include_router(chat_router)
 
 
 @app.get("/health")
