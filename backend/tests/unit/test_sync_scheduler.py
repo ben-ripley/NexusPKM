@@ -509,3 +509,66 @@ class TestSyncSchedulerLifecycle:
             await scheduler.shutdown()
 
             mock_sched.shutdown.assert_called_once_with(wait=False)
+
+
+class TestRescheduleConnector:
+    def test_reschedule_updates_existing_job(self) -> None:
+        """reschedule_connector calls reschedule_job when the job already exists."""
+        from nexuspkm.connectors.scheduler import SyncScheduler
+
+        registry = MagicMock()
+        registry.all_connectors = MagicMock(return_value=[])
+        index = MagicMock()
+
+        with patch("nexuspkm.connectors.scheduler.AsyncIOScheduler") as MockScheduler:
+            mock_sched = MagicMock()
+            mock_sched.running = False
+            mock_sched.get_job.return_value = MagicMock()  # job exists
+            MockScheduler.return_value = mock_sched
+
+            scheduler = SyncScheduler(registry, index)
+            scheduler.reschedule_connector("teams", 900)
+
+            mock_sched.reschedule_job.assert_called_once_with(
+                "sync_teams", trigger="interval", seconds=900
+            )
+            mock_sched.add_job.assert_not_called()
+
+    def test_reschedule_adds_new_job_when_none_exists(self) -> None:
+        """reschedule_connector calls add_job when no job exists for the connector."""
+        from nexuspkm.connectors.scheduler import SyncScheduler
+
+        registry = MagicMock()
+        registry.all_connectors = MagicMock(return_value=[])
+        index = MagicMock()
+
+        with patch("nexuspkm.connectors.scheduler.AsyncIOScheduler") as MockScheduler:
+            mock_sched = MagicMock()
+            mock_sched.running = False
+            mock_sched.get_job.return_value = None  # no existing job
+            MockScheduler.return_value = mock_sched
+
+            scheduler = SyncScheduler(registry, index)
+            scheduler.reschedule_connector("teams", 600)
+
+            mock_sched.add_job.assert_called_once()
+            call_kwargs = mock_sched.add_job.call_args
+            assert call_kwargs[1]["id"] == "sync_teams"
+            assert call_kwargs[1]["seconds"] == 600
+            mock_sched.reschedule_job.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_trigger_sync_runs_tracked_sync(self) -> None:
+        """trigger_sync delegates to _tracked_sync_connector."""
+        from nexuspkm.connectors.scheduler import SyncScheduler
+
+        connector = _make_stub_connector("stub")
+        registry = _make_registry(connector)
+        index = MagicMock()
+        index.insert = AsyncMock(side_effect=lambda doc: doc)
+
+        scheduler = SyncScheduler(registry, index)
+        await scheduler.trigger_sync("stub")
+
+        # If trigger_sync ran the full sync cycle, health_check will have been called.
+        connector.health_check.assert_awaited_once()

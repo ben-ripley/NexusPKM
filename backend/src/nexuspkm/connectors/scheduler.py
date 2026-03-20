@@ -63,6 +63,34 @@ class SyncScheduler:
             )
         self._scheduler.start()
 
+    def reschedule_connector(self, name: str, seconds: int) -> None:
+        """Update or add the interval sync job for the named connector.
+
+        If the connector already has a scheduled job, its interval is updated in
+        place.  If it has no scheduled job (e.g. it was disabled at startup),
+        a new interval job is added.
+        """
+        job_id = f"sync_{name}"
+        if self._scheduler.get_job(job_id) is not None:
+            self._scheduler.reschedule_job(job_id, trigger="interval", seconds=seconds)
+        else:
+            self._scheduler.add_job(
+                self._tracked_sync_connector,
+                "interval",
+                seconds=seconds,
+                args=[name],
+                id=job_id,
+                replace_existing=True,
+            )
+        log.info("sync_job_rescheduled", connector=name, interval_seconds=seconds)
+
+    async def trigger_sync(self, name: str) -> None:
+        """Trigger an immediate sync for the named connector outside of the scheduled interval.
+
+        Runs as a tracked task so shutdown() will await its completion.
+        """
+        await self._tracked_sync_connector(name)
+
     async def shutdown(self) -> None:
         """Stop the scheduler and await all in-flight sync tasks.
 

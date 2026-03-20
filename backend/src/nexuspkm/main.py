@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from nexuspkm.api.connectors import get_connector_registry, get_sync_scheduler
+from nexuspkm.api.connectors import router as connectors_router
 from nexuspkm.api.engine import get_knowledge_index
 from nexuspkm.api.engine import router as engine_router
 from nexuspkm.api.providers import get_registry
@@ -50,9 +52,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_knowledge_index] = lambda: _knowledge_index
 
     _connector_registry = ConnectorRegistry()
-    # No connectors registered yet — concrete connectors added in future NXP issues.
     intervals: dict[str, int] = {}
+
+    if config.connectors.teams.enabled:
+        from nexuspkm.connectors.ms_graph.teams import TeamsTranscriptConnector
+
+        teams_connector = TeamsTranscriptConnector(
+            token_dir=data_dir / ".tokens",
+            state_dir=data_dir / "connectors",
+            config=config.connectors.teams,
+        )
+        _connector_registry.register(teams_connector)
+        intervals["teams"] = config.connectors.teams.sync_interval_minutes * 60
+        log.info("teams_connector_registered")
+
     _sync_scheduler = SyncScheduler(_connector_registry, _knowledge_index)
+    app.dependency_overrides[get_connector_registry] = lambda: _connector_registry
+    app.dependency_overrides[get_sync_scheduler] = lambda: _sync_scheduler
     _sync_scheduler.start(intervals)
 
     log.info(
@@ -79,6 +95,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="NexusPKM", lifespan=lifespan)
 app.include_router(providers_router)
 app.include_router(engine_router)
+app.include_router(connectors_router)
 
 
 @app.get("/health")

@@ -1,0 +1,19 @@
+WEBVTT
+
+00:00:01.000 --> 00:00:05.000
+<v Alice Smith>Hello everyone, let's get started with today's standup.</v>
+
+00:00:05.500 --> 00:00:12.000
+<v Bob Jones>Thanks Alice. I wanted to discuss the project timeline first.</v>
+
+00:00:12.500 --> 00:00:18.000
+<v Carol White>I agree, the timeline is critical. We need to finalize it today.</v>
+
+00:00:18.500 --> 00:00:24.000
+<v Alice Smith>Sure. Bob, can you walk us through the current state?</v>
+
+00:00:24.500 --> 00:00:31.000
+<v Bob Jones>Absolutely. We are about 60 percent complete on the backend work.</v>
+
+00:00:31.500 --> 00:00:38.000
+<v Carol White>That sounds good. What about the frontend timeline?</v>
