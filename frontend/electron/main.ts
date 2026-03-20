@@ -61,6 +61,8 @@ function createMainWindow(): BrowserWindow {
   })
 
   const devServerUrl = process.env['MAIN_WINDOW_VITE_DEV_SERVER_URL']
+  // In production the FastAPI backend serves the compiled React bundle at its root (ADR-011).
+  // In development electron-vite sets MAIN_WINDOW_VITE_DEV_SERVER_URL to the Vite dev server.
   const targetUrl = devServerUrl ?? `http://127.0.0.1:${BACKEND_PORT}`
   win.loadURL(targetUrl).catch((err: unknown) => {
     process.stderr.write(`[main] Failed to load URL ${targetUrl}: ${String(err)}\n`)
