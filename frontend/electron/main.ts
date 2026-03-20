@@ -208,7 +208,8 @@ app
       onShow: showOrCreateMainWindow,
       onQuickChat: () => {
         showOrCreateMainWindow()
-        mainWindow?.webContents.executeJavaScript('window.location.hash = "#/chat"').catch(() => {})
+        // Signal renderer to navigate to chat via IPC (renderer subscribes via preload)
+        mainWindow?.webContents.send('navigate', '/chat')
       },
     })
 
@@ -226,6 +227,7 @@ app
     // Notify user if backend crashes after a successful startup
     backendProcess.on('exit', (code) => {
       if (!isShuttingDown) {
+        isShuttingDown = true
         process.stderr.write(`[main] Backend exited unexpectedly (code ${String(code)})\n`)
         dialog
           .showMessageBox({
