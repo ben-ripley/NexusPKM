@@ -107,13 +107,20 @@ class ObsidianNotesConnector(BaseConnector):
 
         Also removes the corresponding entries from the persisted file state so
         repeated calls do not re-report the same deletions.
+
+        Deletion is detected by checking whether each previously-tracked path still
+        exists on disk.  Intentionally does *not* use ``_collect_vault_paths`` so that
+        extension-filter changes (e.g. removing ``.md`` from ``include_extensions``)
+        don't cause every tracked file to be re-reported as deleted.
         """
         file_state = await self._load_file_state()
         if not file_state:
             return []
 
-        vault_files = await asyncio.to_thread(self._collect_vault_paths)
-        current_paths = {str(p.relative_to(self._vault_path)) for p in vault_files}
+        vault_root = self._vault_path
+        current_paths: set[str] = await asyncio.to_thread(
+            lambda: {rel for rel in file_state if (vault_root / rel).exists()}
+        )
 
         deleted_ids: list[str] = []
         updated_state = {
@@ -217,26 +224,40 @@ class ObsidianNotesConnector(BaseConnector):
         on_upsert: Callable[[Document], Awaitable[Any]],
         on_delete: Callable[[str], Awaitable[None]],
     ) -> None:
-        """Internal loop using watchfiles.awatch with 2 s debounce."""
+        """Internal loop using watchfiles.awatch with 2 s debounce.
+
+        Always clears ``_watcher_task`` on exit so that ``watcher_running``
+        reflects reality even if the loop terminates unexpectedly (e.g.
+        inotify limit exceeded, vault unmounted).
+        """
         try:
-            import watchfiles
-        except ImportError:
+            try:
+                import watchfiles
+            except ImportError:
+                log.error(
+                    "obsidian_connector.watchfiles_not_installed",
+                    hint="Add watchfiles>=0.21 to dependencies",
+                )
+                return
+
+            async for changes in watchfiles.awatch(self._vault_path, debounce=2000):
+                for change_type, path_str in changes:
+                    path = Path(path_str)
+                    if not self._should_process_path(path):
+                        continue
+
+                    if change_type == watchfiles.Change.deleted:
+                        await self._handle_delete(path, on_delete)
+                    else:
+                        await self._handle_upsert(path, on_upsert)
+        except Exception:
             log.error(
-                "obsidian_connector.watchfiles_not_installed",
-                hint="Add watchfiles>=0.21 to dependencies",
+                "obsidian_connector.watcher_crashed",
+                vault=str(self._vault_path),
+                exc_info=True,
             )
-            return
-
-        async for changes in watchfiles.awatch(self._vault_path, debounce=2000):
-            for change_type, path_str in changes:
-                path = Path(path_str)
-                if not self._should_process_path(path):
-                    continue
-
-                if change_type == watchfiles.Change.deleted:
-                    await self._handle_delete(path, on_delete)
-                else:
-                    await self._handle_upsert(path, on_upsert)
+        finally:
+            self._watcher_task = None
 
     async def _handle_upsert(
         self,
@@ -289,6 +310,11 @@ class ObsidianNotesConnector(BaseConnector):
     # ------------------------------------------------------------------
 
     async def _fetch_gen(self, since: datetime.datetime | None) -> AsyncGenerator[Document, None]:
+        # `since` is accepted for API symmetry with BaseConnector but is intentionally
+        # unused: change detection relies entirely on the per-file mtime/content-hash
+        # cache, which is more reliable than a bare timestamp comparison (handles clock
+        # skew and sub-second writes on coarse-resolution filesystems).
+        _ = since
         # NOTE: watcher (_handle_upsert/_handle_delete) can write file state concurrently
         # with this generator.  For v1 (local, single-user) the worst outcome is a
         # harmless re-index of a note on the next scheduled run; no index documents are lost.
@@ -400,7 +426,7 @@ class ObsidianNotesConnector(BaseConnector):
         The main fetch pipeline uses ``_build_document`` to avoid re-reading.
         """
         raw = path.read_text(encoding="utf-8", errors="replace")
-        stat = os.stat(path)
+        stat = path.stat()
         return self._build_document(path, raw, stat)
 
     def _build_document(self, path: Path, content: str, stat: os.stat_result) -> Document:

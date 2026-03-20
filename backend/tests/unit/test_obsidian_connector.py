@@ -281,6 +281,51 @@ async def test_fetch_deleted_ids_empty_state(tmp_path: Path) -> None:
     assert deleted_ids == []
 
 
+async def test_fetch_deleted_ids_file_exists_not_reported(tmp_path: Path) -> None:
+    """A tracked file that still exists on disk is NOT reported as deleted,
+    even if its extension no longer matches include_extensions."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    note = vault / "note.md"
+    note.write_text("Content.")
+    connector = _make_connector(tmp_path, vault_path=vault)
+
+    entry: _ObsidianFileEntry = {
+        "doc_id": "existing-uuid",
+        "mtime": 111.0,
+        "content_hash": "hash1",
+    }
+    await connector._save_file_state({"note.md": entry})
+
+    # File still exists → should not be reported
+    deleted_ids = await connector.fetch_deleted_ids()
+    assert deleted_ids == []
+
+
+async def test_fetch_deleted_ids_checks_actual_existence_not_extension_filter(
+    tmp_path: Path,
+) -> None:
+    """fetch_deleted_ids uses actual file existence, not _collect_vault_paths,
+    so a file tracked under a path that still exists is never a false positive."""
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    # Create a .txt file (not in include_extensions) and pretend it was tracked
+    txt_note = vault / "legacy.txt"
+    txt_note.write_text("old content")
+    connector = _make_connector(tmp_path, vault_path=vault)
+
+    entry: _ObsidianFileEntry = {
+        "doc_id": "txt-uuid",
+        "mtime": 1.0,
+        "content_hash": "h",
+    }
+    await connector._save_file_state({"legacy.txt": entry})
+
+    # File exists on disk → should NOT be reported as deleted regardless of extension
+    deleted_ids = await connector.fetch_deleted_ids()
+    assert "txt-uuid" not in deleted_ids
+
+
 # ---------------------------------------------------------------------------
 # Public properties
 # ---------------------------------------------------------------------------
@@ -358,6 +403,33 @@ async def test_stop_watching_noop_when_not_started(tmp_path: Path) -> None:
     connector = _make_connector(tmp_path)
     # Should not raise
     await connector.stop_watching()
+    assert connector.watcher_running is False
+
+
+async def test_watcher_crash_clears_watcher_running(tmp_path: Path) -> None:
+    """If the watcher loop exits unexpectedly, watcher_running must return False."""
+    import asyncio
+    import sys
+    from unittest.mock import MagicMock, patch
+
+    connector = _make_connector(tmp_path)
+
+    # Replace watchfiles in sys.modules so the local `import watchfiles` inside
+    # _watch_loop picks up our mock regardless of whether the package is installed.
+    async def _awatch_crash(*_args: object, **_kwargs: object):  # type: ignore[return]
+        raise OSError("inotify limit exceeded")
+        yield  # makes this an async generator so `async for` consumes it cleanly
+
+    mock_wf = MagicMock()
+    mock_wf.awatch = _awatch_crash
+
+    with patch.dict(sys.modules, {"watchfiles": mock_wf}):
+        connector._watcher_task = asyncio.create_task(
+            connector._watch_loop(AsyncMock(), AsyncMock()),
+            name="obsidian_watcher",
+        )
+        await asyncio.wait_for(connector._watcher_task, timeout=2.0)
+
     assert connector.watcher_running is False
 
 
