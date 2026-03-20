@@ -61,6 +61,7 @@ def _make_stub_connector(name: str = "stub") -> MagicMock:
     )
     connector.get_sync_state = AsyncMock(return_value=SyncState())
     connector.restore_sync_state = AsyncMock()
+    connector.fetch_deleted_ids = AsyncMock(return_value=[])
     return connector
 
 

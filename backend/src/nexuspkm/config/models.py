@@ -152,6 +152,7 @@ class ObsidianConnectorConfig(BaseModel):
     exclude_patterns: list[str] = Field(
         default_factory=lambda: [".obsidian/", ".trash/", "templates/"]
     )
+    include_extensions: list[str] = Field(default_factory=lambda: [".md"])
 
     @field_validator("vault_path", mode="before")
     @classmethod
