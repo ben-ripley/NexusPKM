@@ -2,26 +2,31 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+const mockTrayInstance = {
+  setToolTip: vi.fn(),
+  setContextMenu: vi.fn(),
+  on: vi.fn(),
+  destroy: vi.fn(),
+}
+
 // Mock electron before importing tray module
 vi.mock('electron', () => ({
-  Tray: vi.fn().mockImplementation(() => ({
-    setToolTip: vi.fn(),
-    setContextMenu: vi.fn(),
-    on: vi.fn(),
-  })),
+  Tray: vi.fn(function () { return mockTrayInstance }),
   Menu: {
     buildFromTemplate: vi.fn().mockReturnValue({ mock: 'menu' }),
   },
   app: {
     quit: vi.fn(),
+    getAppPath: vi.fn().mockReturnValue('/mock/app'),
   },
   nativeImage: {
     createEmpty: vi.fn().mockReturnValue({ isEmpty: () => true }),
+    createFromPath: vi.fn().mockReturnValue({ isEmpty: () => false }),
   },
 }))
 
-import { buildTrayMenuTemplate } from '../../electron/tray'
-import { app, Menu } from 'electron'
+import { buildTrayMenuTemplate, createTray } from '../../electron/tray'
+import { app, Menu, nativeImage } from 'electron'
 
 describe('buildTrayMenuTemplate', () => {
   afterEach(() => {
@@ -64,5 +69,32 @@ describe('buildTrayMenuTemplate', () => {
     const template = buildTrayMenuTemplate({ onShow: vi.fn(), onQuickChat: vi.fn() })
     Menu.buildFromTemplate(template)
     expect(Menu.buildFromTemplate).toHaveBeenCalledWith(template)
+  })
+})
+
+describe('createTray', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(nativeImage.createFromPath).mockReturnValue({ isEmpty: () => false } as ReturnType<typeof nativeImage.createFromPath>)
+  })
+
+  it('creates tray with icon from assets path', () => {
+    createTray({ onShow: vi.fn(), onQuickChat: vi.fn() })
+    expect(nativeImage.createFromPath).toHaveBeenCalledWith(
+      expect.stringContaining('tray-icon.png') as string,
+    )
+    expect(mockTrayInstance.setToolTip).toHaveBeenCalledWith('NexusPKM')
+  })
+
+  it('logs a warning when icon is empty (file missing)', () => {
+    vi.mocked(nativeImage.createFromPath).mockReturnValue({
+      isEmpty: () => true,
+    } as ReturnType<typeof nativeImage.createFromPath>)
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+
+    createTray({ onShow: vi.fn(), onQuickChat: vi.fn() })
+
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('tray-icon.png') as string)
+    stderrSpy.mockRestore()
   })
 })

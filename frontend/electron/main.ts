@@ -173,8 +173,6 @@ function setupIpc(): void {
 app
   .whenReady()
   .then(async () => {
-    app.setLoginItemSettings({ openAtLogin: false }) // default off; renderer can enable via IPC
-
     const inUse = await isPortInUse(BACKEND_PORT)
     if (inUse) {
       await dialog.showMessageBox({
@@ -214,7 +212,16 @@ app
       },
     })
 
-    globalShortcut.register('CommandOrControl+Shift+K', showOrCreateMainWindow)
+    const shortcutRegistered = globalShortcut.register(
+      'CommandOrControl+Shift+K',
+      showOrCreateMainWindow,
+    )
+    if (!shortcutRegistered) {
+      process.stderr.write(
+        '[main] Warning: failed to register global shortcut Cmd+Shift+K — ' +
+          'another application may own it.\n',
+      )
+    }
 
     // Notify user if backend crashes after a successful startup
     backendProcess.on('exit', (code) => {

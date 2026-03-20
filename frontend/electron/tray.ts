@@ -27,13 +27,15 @@ export function buildTrayMenuTemplate(callbacks: TrayCallbacks): MenuItemConstru
 }
 
 export function createTray(callbacks: TrayCallbacks): Tray {
-  let icon: Electron.NativeImage
-  try {
-    icon = nativeImage.createFromPath(
-      path.join(app.getAppPath(), '..', 'assets', 'tray-icon.png'),
+  // createFromPath returns an empty image (not an exception) when the file is missing
+  const icon = nativeImage.createFromPath(
+    path.join(app.getAppPath(), '..', 'assets', 'tray-icon.png'),
+  )
+  if (icon.isEmpty()) {
+    process.stderr.write(
+      '[tray] Warning: tray-icon.png not found — tray icon will be blank. ' +
+        'Add assets/tray-icon.png to fix this.\n',
     )
-  } catch {
-    icon = nativeImage.createEmpty()
   }
 
   tray = new Tray(icon)
