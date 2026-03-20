@@ -5,20 +5,21 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import type { ConnectorStatus } from '@/services/api'
 
-const STATUS_CONFIG = {
-  healthy: {
-    icon: <CheckCircle className="size-4 text-green-500" />,
-    badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-  },
-  degraded: {
-    icon: <AlertCircle className="size-4 text-yellow-500" />,
-    badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-  },
-  unavailable: {
-    icon: <XCircle className="size-4 text-red-500" />,
-    badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-  },
-}
+const STATUS_CONFIG: Record<ConnectorStatus['status'], { icon: React.ReactNode; badge: string }> =
+  {
+    healthy: {
+      icon: <CheckCircle className="size-4 text-green-500" />,
+      badge: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
+    },
+    degraded: {
+      icon: <AlertCircle className="size-4 text-yellow-500" />,
+      badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+    },
+    unavailable: {
+      icon: <XCircle className="size-4 text-red-500" />,
+      badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+    },
+  }
 
 interface Props {
   connectors: ConnectorStatus[]

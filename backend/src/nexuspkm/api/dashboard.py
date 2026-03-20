@@ -87,6 +87,8 @@ async def get_stats(
     """Return knowledge base statistics aggregated from the index."""
     try:
         raw = await index.stats()
+    except HTTPException:
+        raise
     except Exception as exc:
         log.error("dashboard_stats_failed", error=str(exc))
         raise HTTPException(status_code=500, detail="Failed to retrieve dashboard stats") from exc
@@ -96,6 +98,8 @@ async def get_stats(
         total_chunks=raw.get("chunks", 0),
         total_entities=raw.get("entities", 0),
         total_relationships=raw.get("relationships", 0),
+        # by_source_type is stubbed empty until per-source ingestion tracking
+        # is implemented. KnowledgeIndex.stats() does not yet return per-source counts.
         by_source_type={},
     )
 
