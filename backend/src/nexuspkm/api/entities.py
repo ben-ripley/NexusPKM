@@ -15,6 +15,7 @@ Spec: F-006 API endpoints
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from typing import Annotated, Any, Literal
 
 import structlog
@@ -120,6 +121,9 @@ _TYPE_TABLE: dict[EntityType, str] = {
 
 _ALL_TABLES = list(_TYPE_TABLE.items())
 
+# Whitelist of valid Kuzu node label strings — used to guard f-string query construction.
+_ALLOWED_NODE_LABELS: frozenset[str] = frozenset(_TYPE_TABLE.values())
+
 # Fields to return per node type
 _TYPE_NAME_FIELD: dict[str, str] = {
     "Person": "name",
@@ -155,6 +159,7 @@ def _list_entities_sync(
     tables = [(entity_type, _TYPE_TABLE[entity_type])] if entity_type is not None else _ALL_TABLES
     results: list[EntityResponse] = []
     for etype, table in tables:
+        assert table in _ALLOWED_NODE_LABELS, f"Unexpected node label: {table!r}"
         name_field = _TYPE_NAME_FIELD[table]
         rows = graph_store.execute(f"MATCH (n:{table}) RETURN n.id AS id, n.{name_field} AS name")
         for row in rows:
@@ -180,21 +185,45 @@ async def merge_entities(
     Removes the source entity node. The target node is preserved.
     """
     loop = asyncio.get_running_loop()
-    found = await loop.run_in_executor(None, _merge_entities_sync, graph_store, payload.source_id)
+    found = await loop.run_in_executor(
+        None, _merge_entities_sync, graph_store, payload.source_id, payload.target_id
+    )
     if not found:
         raise HTTPException(status_code=404, detail="Source entity not found")
     log.info("entities.merged", source=payload.source_id, target=payload.target_id)
     return MergeResponse(target_id=payload.target_id)
 
 
-def _merge_entities_sync(graph_store: GraphStore, source_id: str) -> bool:
-    """Delete source node after verifying it exists. Returns True if found."""
+def _merge_entities_sync(graph_store: GraphStore, source_id: str, target_id: str) -> bool:
+    """Migrate source node's relationships to target, then delete source.
+
+    Returns True if source was found (and deleted), False if not found.
+    """
+    source_table: str | None = None
     for table in _TYPE_TABLE.values():
+        assert table in _ALLOWED_NODE_LABELS, f"Unexpected node label: {table!r}"
         rows = graph_store.execute(f"MATCH (n:{table} {{id: $id}}) RETURN n.id", {"id": source_id})
         if rows:
-            graph_store.delete_node(table, source_id)
-            return True
-    return False
+            source_table = table
+            break
+    if source_table is None:
+        return False
+
+    # Migrate relationships before deleting source to avoid orphaning graph edges.
+    for rel_type, (from_t, to_t) in _REL_TABLE_MAP.items():
+        if from_t == source_table:
+            for rel in graph_store.get_relationships(rel_type, from_id=source_id):
+                with contextlib.suppress(Exception):
+                    graph_store.create_relationship(rel_type, from_t, target_id, to_t, rel["to_id"])
+        if to_t == source_table:
+            for rel in graph_store.get_relationships(rel_type, to_id=source_id):
+                with contextlib.suppress(Exception):
+                    graph_store.create_relationship(
+                        rel_type, from_t, rel["from_id"], to_t, target_id
+                    )
+
+    graph_store.delete_node(source_table, source_id)
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +246,7 @@ async def get_entity(
 
 def _get_entity_sync(graph_store: GraphStore, entity_id: str) -> EntityDetailResponse | None:
     for etype, table in _ALL_TABLES:
+        assert table in _ALLOWED_NODE_LABELS, f"Unexpected node label: {table!r}"
         name_field = _TYPE_NAME_FIELD[table]
         rows = graph_store.execute(
             f"MATCH (n:{table} {{id: $id}}) RETURN n.id AS id, n.{name_field} AS name",

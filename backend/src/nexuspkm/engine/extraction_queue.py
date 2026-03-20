@@ -164,8 +164,9 @@ class ExtractionQueue:
         now = datetime.now(tz=UTC).isoformat()
         # Use isolation_level=None (autocommit) so we can issue BEGIN IMMEDIATE
         # explicitly, preventing two concurrent workers from claiming the same row.
-        conn = sqlite3.connect(self._db_path, isolation_level=None)
+        conn: sqlite3.Connection | None = None
         try:
+            conn = sqlite3.connect(self._db_path, isolation_level=None)
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
                 "SELECT id, document_json, retry_count FROM extraction_queue "
@@ -181,10 +182,12 @@ class ExtractionQueue:
             )
             conn.execute("COMMIT")
         except Exception:
-            conn.execute("ROLLBACK")
+            if conn is not None:
+                conn.execute("ROLLBACK")
             raise
         finally:
-            conn.close()
+            if conn is not None:
+                conn.close()
         return row_id, doc_json, retry_count
 
     async def _mark_done(self, row_id: str) -> None:
