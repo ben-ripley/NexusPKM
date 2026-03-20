@@ -1,4 +1,6 @@
-const ALL_TYPES = ['person', 'project', 'topic', 'decision', 'action_item', 'meeting'] as const
+import { ALL_ENTITY_TYPES } from '@/constants/entityTypes'
+
+const ALL_TYPES = ALL_ENTITY_TYPES
 
 interface Props {
   selectedTypes: string[]

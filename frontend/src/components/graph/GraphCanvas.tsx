@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { ForceGraph2D } from 'react-force-graph'
 import type { GraphNode, GraphLink } from '@/hooks/useGraphData'
 
@@ -22,6 +22,25 @@ interface Props {
 }
 
 export default function GraphCanvas({ graphData, onNodeClick, selectedNodeId }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (entry) {
+        const { width, height } = entry.contentRect
+        setDimensions({ width, height })
+      }
+    })
+
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
+
   const paintNode = useCallback(
     (node: GraphNode & { x?: number; y?: number }, ctx: CanvasRenderingContext2D) => {
       const x = node.x ?? 0
@@ -44,16 +63,20 @@ export default function GraphCanvas({ graphData, onNodeClick, selectedNodeId }: 
   )
 
   return (
-    <ForceGraph2D
-      graphData={graphData}
-      nodeCanvasObject={paintNode}
-      nodeCanvasObjectMode={() => 'replace'}
-      onNodeClick={(node) => onNodeClick(node as GraphNode)}
-      nodeLabel={(node) => (node as GraphNode).name}
-      linkColor={() => '#475569'}
-      backgroundColor="transparent"
-      width={undefined}
-      height={undefined}
-    />
+    <div ref={containerRef} className="size-full">
+      {dimensions.width > 0 && (
+        <ForceGraph2D
+          graphData={graphData}
+          nodeCanvasObject={paintNode}
+          nodeCanvasObjectMode={() => 'replace'}
+          onNodeClick={(node) => onNodeClick(node as GraphNode)}
+          nodeLabel={(node) => (node as GraphNode).name}
+          linkColor={() => '#475569'}
+          backgroundColor="transparent"
+          width={dimensions.width}
+          height={dimensions.height}
+        />
+      )}
+    </div>
   )
 }

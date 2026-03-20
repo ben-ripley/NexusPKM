@@ -9,7 +9,7 @@ interface Props {
 }
 
 export default function EntityDetail({ entityId, onClose }: Props) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['entity-detail', entityId],
     queryFn: () => fetchEntityDetail(entityId),
     staleTime: 60_000,
@@ -35,6 +35,8 @@ export default function EntityDetail({ entityId, onClose }: Props) {
           <Skeleton data-testid="entity-detail-skeleton" className="h-4 w-full" />
           <Skeleton data-testid="entity-detail-skeleton" className="h-4 w-full" />
         </div>
+      ) : isError ? (
+        <p className="text-sm text-destructive">Failed to load entity.</p>
       ) : data ? (
         <>
           <div>

@@ -4,14 +4,15 @@ import GraphCanvas from '@/components/graph/GraphCanvas'
 import EntityDetail from '@/components/graph/EntityDetail'
 import { useGraphData } from '@/hooks/useGraphData'
 import type { GraphNode } from '@/hooks/useGraphData'
+import { ALL_ENTITY_TYPES } from '@/constants/entityTypes'
 
-const ALL_TYPES = ['person', 'project', 'topic', 'decision', 'action_item', 'meeting']
+const ALL_TYPES = [...ALL_ENTITY_TYPES]
 
 export default function GraphPage() {
   const [selectedTypes, setSelectedTypes] = useState<string[]>(ALL_TYPES)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
 
-  const { nodes, links, isLoading } = useGraphData(selectedTypes)
+  const { nodes, links, isLoading, error } = useGraphData(selectedTypes)
 
   function handleNodeClick(node: GraphNode) {
     setSelectedNodeId(node.id)
@@ -36,7 +37,11 @@ export default function GraphPage() {
 
       {/* Center — graph canvas */}
       <main className="relative flex-1 overflow-hidden bg-background">
-        {isLoading ? (
+        {error ? (
+          <div className="flex h-full items-center justify-center text-sm text-destructive">
+            Failed to load graph data.
+          </div>
+        ) : isLoading ? (
           <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
             Loading graph…
           </div>
