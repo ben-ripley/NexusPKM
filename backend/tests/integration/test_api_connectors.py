@@ -248,10 +248,10 @@ class TestAuthenticate:
         assert data["expires_in"] == 900
         assert "message" in data
 
-    def test_non_ms_connector_returns_404(self, connector_client: TestClient) -> None:
+    def test_non_ms_connector_returns_400(self, connector_client: TestClient) -> None:
         response = connector_client.post("/api/connectors/test_source/authenticate")
 
-        assert response.status_code == 404
+        assert response.status_code == 400
 
     def test_unknown_connector_returns_404(self, connector_client: TestClient) -> None:
         response = connector_client.post("/api/connectors/no_such_connector/authenticate")
@@ -273,4 +273,15 @@ class TestAuthenticate:
         response = client.post("/api/connectors/test_ms/authenticate")
 
         assert response.status_code == 500
-        assert "tenant not configured" in response.json()["detail"]
+        # Internal error detail must not be leaked to the caller
+        assert "tenant not configured" not in response.json()["detail"]
+
+    def test_background_task_polls_for_token(
+        self,
+        connector_client: TestClient,
+        mock_ms_connector: MagicMock,
+    ) -> None:
+        connector_client.post("/api/connectors/test_ms/authenticate")
+
+        # TestClient runs background tasks synchronously
+        mock_ms_connector.complete_auth_flow.assert_called_once()

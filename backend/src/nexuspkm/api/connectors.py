@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Annotated, Literal, Protocol, runtime_checkable
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Path
 from pydantic import AwareDatetime, BaseModel, Field
 
 from nexuspkm.config.models import TeamsConnectorConfig
@@ -28,6 +28,11 @@ log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/api/connectors/teams", tags=["connectors"])
 generic_router = APIRouter(prefix="/api/connectors", tags=["connectors"])
 
+# Connector names are validated against this pattern to prevent path traversal
+# and excessively long inputs. "status" is reserved by the generic GET /status
+# endpoint and must not be used as a connector name.
+_CONNECTOR_NAME_PATTERN = r"^[a-zA-Z0-9_\-]{1,64}$"
+
 
 # ---------------------------------------------------------------------------
 # Protocols
@@ -36,7 +41,15 @@ generic_router = APIRouter(prefix="/api/connectors", tags=["connectors"])
 
 @runtime_checkable
 class MSAuthConnector(Protocol):
-    """Duck-typing protocol for connectors that support MS device-code auth."""
+    """Duck-typing protocol for connectors that support MS device-code auth.
+
+    NOTE: runtime_checkable Protocol checks via isinstance() only verify that
+    the named attributes *exist* — not that they are async or have the correct
+    signature. MagicMock(spec=TeamsTranscriptConnector) passes this check
+    because the spec exposes all attributes of TeamsTranscriptConnector.
+    This is intentional: any connector class that declares these methods is
+    treated as MS-auth capable.
+    """
 
     async def initiate_auth_flow(self) -> tuple[DeviceCodeInfo, AuthFlowContext]: ...
 
@@ -77,6 +90,8 @@ class ConfigUpdatedResponse(BaseModel):
 
 
 class ConnectorStatusItem(BaseModel):
+    """Runtime health and sync statistics for a single connector."""
+
     name: str
     status: Literal["healthy", "degraded", "unavailable"]
     last_sync_at: AwareDatetime | None = None
@@ -85,7 +100,18 @@ class ConnectorStatusItem(BaseModel):
 
 
 class GenericConfigUpdate(BaseModel):
+    """Request body for updating a connector's sync interval."""
+
     sync_interval_minutes: int = Field(default=30, gt=0, le=1440)
+
+
+class MSDeviceCodeResponse(BaseModel):
+    """Response for any MS device-code auth initiation (connector-agnostic)."""
+
+    user_code: str
+    verification_uri: str
+    expires_in: int
+    message: str
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +283,7 @@ async def list_connector_statuses(
 
 @generic_router.post("/{name}/sync")
 async def generic_trigger_sync(
-    name: str,
+    name: Annotated[str, Path(pattern=_CONNECTOR_NAME_PATTERN)],
     background_tasks: BackgroundTasks,
     registry: Annotated[ConnectorRegistry, Depends(get_connector_registry)],
     scheduler: Annotated[SyncScheduler, Depends(get_sync_scheduler)],
@@ -273,7 +299,7 @@ async def generic_trigger_sync(
 
 @generic_router.put("/{name}/config")
 async def generic_update_config(
-    name: str,
+    name: Annotated[str, Path(pattern=_CONNECTOR_NAME_PATTERN)],
     payload: GenericConfigUpdate,
     registry: Annotated[ConnectorRegistry, Depends(get_connector_registry)],
     scheduler: Annotated[SyncScheduler, Depends(get_sync_scheduler)],
@@ -293,10 +319,10 @@ async def generic_update_config(
 
 @generic_router.post("/{name}/authenticate")
 async def generic_authenticate(
-    name: str,
+    name: Annotated[str, Path(pattern=_CONNECTOR_NAME_PATTERN)],
     background_tasks: BackgroundTasks,
     registry: Annotated[ConnectorRegistry, Depends(get_connector_registry)],
-) -> TeamsAuthResponse:
+) -> MSDeviceCodeResponse:
     """Initiate MS device-code auth for any MS-capable connector."""
     connector = registry.get(name)
     if connector is None:
@@ -304,7 +330,7 @@ async def generic_authenticate(
 
     if not isinstance(connector, MSAuthConnector):
         raise HTTPException(
-            status_code=404,
+            status_code=400,
             detail=f"Connector '{name}' does not support MS authentication",
         )
 
@@ -312,7 +338,9 @@ async def generic_authenticate(
         info, context = await connector.initiate_auth_flow()
     except (RuntimeError, ValueError) as exc:
         log.error("ms_auth.initiate_failed", connector=name, error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=500, detail="Authentication flow could not be initiated"
+        ) from exc
 
     background_tasks.add_task(_poll_for_ms_token, connector, context, name)
 
@@ -321,7 +349,7 @@ async def generic_authenticate(
         connector=name,
         verification_uri=info.verification_uri,
     )
-    return TeamsAuthResponse(
+    return MSDeviceCodeResponse(
         user_code=info.user_code,
         verification_uri=info.verification_uri,
         expires_in=info.expires_in,
