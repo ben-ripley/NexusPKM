@@ -336,7 +336,7 @@ async def generic_authenticate(
 
     try:
         info, context = await connector.initiate_auth_flow()
-    except (RuntimeError, ValueError) as exc:
+    except Exception as exc:
         log.error("ms_auth.initiate_failed", connector=name, error=str(exc))
         raise HTTPException(
             status_code=500, detail="Authentication flow could not be initiated"
@@ -344,7 +344,7 @@ async def generic_authenticate(
 
     background_tasks.add_task(_poll_for_ms_token, connector, context, name)
 
-    log.info(
+    log.debug(
         "ms_auth.device_flow_initiated",
         connector=name,
         verification_uri=info.verification_uri,

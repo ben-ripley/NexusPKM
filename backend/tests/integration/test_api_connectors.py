@@ -60,6 +60,9 @@ def mock_ms_connector() -> MagicMock:
             MagicMock(),  # AuthFlowContext
         )
     )
+    # AsyncMock is correct here: SyncScheduler.complete_auth_flow is async def.
+    # Starlette's BackgroundTasks awaits async callables, so the mock is
+    # properly awaited during TestClient execution.
     connector.complete_auth_flow = AsyncMock(return_value=True)
     return connector
 
@@ -70,19 +73,18 @@ def registry(
     mock_ms_connector: MagicMock,
 ) -> ConnectorRegistry:
     reg = ConnectorRegistry()
-    reg._connectors["test_source"] = mock_generic_connector
-    reg._statuses["test_source"] = ConnectorStatus(
-        name="test_source",
-        status="healthy",
-        documents_synced=10,
-        last_error=None,
+    # Use the public API rather than accessing private attributes directly.
+    reg.register(mock_generic_connector)
+    reg.update_status(
+        "test_source",
+        ConnectorStatus(name="test_source", status="healthy", documents_synced=10),
     )
-    reg._connectors["test_ms"] = mock_ms_connector
-    reg._statuses["test_ms"] = ConnectorStatus(
-        name="test_ms",
-        status="degraded",
-        documents_synced=3,
-        last_error="token expired",
+    reg.register(mock_ms_connector)
+    reg.update_status(
+        "test_ms",
+        ConnectorStatus(
+            name="test_ms", status="degraded", documents_synced=3, last_error="token expired"
+        ),
     )
     return reg
 
@@ -90,6 +92,8 @@ def registry(
 @pytest.fixture
 def mock_scheduler() -> MagicMock:
     sched = MagicMock(spec=SyncScheduler)
+    # trigger_sync is async def; AsyncMock is required so Starlette's
+    # BackgroundTasks can detect it as a coroutine function and await it.
     sched.trigger_sync = AsyncMock()
     return sched
 
@@ -141,6 +145,21 @@ class TestGetAllStatuses:
         assert response.status_code == 200
         assert response.json() == []
 
+    def test_literal_status_route_wins_over_name_parameter(
+        self, connector_client: TestClient
+    ) -> None:
+        """GET /status (literal segment) must not be captured by /{name}/... routes.
+
+        FastAPI matches literal path segments before parameterised ones, so this
+        verifies that adding the generic router does not shadow the status list
+        endpoint regardless of registration order.
+        """
+        response = connector_client.get("/api/connectors/status")
+
+        assert response.status_code == 200
+        # Response is a list, not a 404/422 that would indicate a routing error.
+        assert isinstance(response.json(), list)
+
 
 # ---------------------------------------------------------------------------
 # POST /api/connectors/{name}/sync
@@ -171,6 +190,18 @@ class TestTriggerSync:
         connector_client.post("/api/connectors/test_source/sync")
 
         mock_scheduler.trigger_sync.assert_called_once_with("test_source")
+
+    def test_invalid_name_returns_422(self, connector_client: TestClient) -> None:
+        # Name contains a slash — rejected by the Path pattern before hitting handler
+        response = connector_client.post("/api/connectors/bad.name/sync")
+
+        assert response.status_code == 422
+
+    def test_name_too_long_returns_422(self, connector_client: TestClient) -> None:
+        long_name = "a" * 65
+        response = connector_client.post(f"/api/connectors/{long_name}/sync")
+
+        assert response.status_code == 422
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +258,14 @@ class TestUpdateConfig:
 
         mock_scheduler.reschedule_connector.assert_called_once_with("test_source", 45 * 60)
 
+    def test_invalid_name_returns_422(self, connector_client: TestClient) -> None:
+        response = connector_client.put(
+            "/api/connectors/bad.name/config",
+            json={"sync_interval_minutes": 30},
+        )
+
+        assert response.status_code == 422
+
 
 # ---------------------------------------------------------------------------
 # POST /api/connectors/{name}/authenticate
@@ -281,7 +320,14 @@ class TestAuthenticate:
         connector_client: TestClient,
         mock_ms_connector: MagicMock,
     ) -> None:
+        # TestClient runs the full ASGI lifecycle including background tasks.
+        # Starlette detects async callables and awaits them, so complete_auth_flow
+        # (an AsyncMock) is properly awaited before the test assertion runs.
         connector_client.post("/api/connectors/test_ms/authenticate")
 
-        # TestClient runs background tasks synchronously
         mock_ms_connector.complete_auth_flow.assert_called_once()
+
+    def test_invalid_name_returns_422(self, connector_client: TestClient) -> None:
+        response = connector_client.post("/api/connectors/bad.name/authenticate")
+
+        assert response.status_code == 422
