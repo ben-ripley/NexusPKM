@@ -518,3 +518,65 @@ async def test_restore_and_get_sync_state(tmp_path: Path) -> None:
     await connector.restore_sync_state(state)
     loaded = await connector.get_sync_state()
     assert loaded.documents_synced == 5
+
+
+# ---------------------------------------------------------------------------
+# Rate limit retry cap
+# ---------------------------------------------------------------------------
+
+
+async def test_rate_limit_retries_exhausted(tmp_path: Path) -> None:
+    """After _MAX_RATE_LIMIT_RETRIES (5) consecutive 429s the fetch aborts."""
+    connector = _make_connector(tmp_path)
+
+    async def _always_429(url: str, **kwargs: object) -> MagicMock:
+        resp = MagicMock()
+        resp.status_code = 429
+        resp.headers = {"Retry-After": "0"}
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = _always_429
+
+    with patch("nexuspkm.connectors.jira.connector.httpx.AsyncClient", return_value=mock_client):
+        docs = [doc async for doc in connector.fetch(since=None)]
+
+    assert docs == []
+    status = await connector.health_check()
+    assert status.status == "degraded"
+    assert any("rate limit" in e for e in status.sync_errors)
+
+
+async def test_rate_limit_counter_resets_after_success(tmp_path: Path) -> None:
+    """A successful response resets the retry counter so later 429s don't compound."""
+    connector = _make_connector(tmp_path)
+
+    call_seq = iter(
+        [429, 200, 200]  # one 429, then a normal page with 0 issues
+    )
+
+    async def _seq_responses(url: str, **kwargs: object) -> MagicMock:
+        status = next(call_seq)
+        resp = MagicMock()
+        resp.status_code = status
+        resp.headers = {"Retry-After": "0"}
+        resp.raise_for_status = MagicMock()
+        if status == 200:
+            resp.json.return_value = {"issues": [], "total": 0, "startAt": 0}
+        return resp
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.get = _seq_responses
+
+    with patch("nexuspkm.connectors.jira.connector.httpx.AsyncClient", return_value=mock_client):
+        docs = [doc async for doc in connector.fetch(since=None)]
+
+    # Should complete cleanly with 0 docs (not abort due to the single 429)
+    assert docs == []
+    status = await connector.health_check()
+    assert status.status == "healthy"

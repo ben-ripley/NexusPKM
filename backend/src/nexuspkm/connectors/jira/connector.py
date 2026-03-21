@@ -10,7 +10,6 @@ NXP-85
 from __future__ import annotations
 
 import asyncio
-import base64
 import datetime
 import json
 import os
@@ -27,6 +26,9 @@ from nexuspkm.connectors.base import BaseConnector, ConnectorStatus
 from nexuspkm.models.document import Document, DocumentMetadata, SourceType, SyncState
 
 log = structlog.get_logger(__name__)
+
+# Maximum number of consecutive 429 responses before aborting the page fetch.
+_MAX_RATE_LIMIT_RETRIES = 5
 
 _SEARCH_FIELDS = (
     "summary,description,status,assignee,reporter,priority,"
@@ -68,7 +70,7 @@ class JiraConnector(BaseConnector):
         self._state_dir = state_dir
         self._config = config
         self._base_url = (config.base_url or "").rstrip("/")
-        self._auth_header = _make_basic_auth_header(email, api_token)
+        self._auth = httpx.BasicAuth(email, api_token)
         self._issue_state_file = state_dir / "jira_sync_state.json"
         self._checkpoint_file = state_dir / "jira_checkpoint.json"
         self._total_docs_synced = 0
@@ -101,7 +103,7 @@ class JiraConnector(BaseConnector):
     async def authenticate(self) -> bool:
         """Verify credentials via HEAD /rest/api/3/myself."""
         try:
-            async with httpx.AsyncClient(headers=self._auth_header, timeout=10) as client:
+            async with httpx.AsyncClient(auth=self._auth, timeout=10) as client:
                 resp = await client.get(f"{self._base_url}/rest/api/3/myself")
                 resp.raise_for_status()
             return True
@@ -122,7 +124,7 @@ class JiraConnector(BaseConnector):
         deleted_ids: list[str] = []
         updated_state: dict[str, _JiraIssueEntry] = {}
 
-        async with httpx.AsyncClient(headers=self._auth_header, timeout=15) as client:
+        async with httpx.AsyncClient(auth=self._auth, timeout=15) as client:
             for issue_key, entry in issue_state.items():
                 try:
                     resp = await client.get(
@@ -195,9 +197,10 @@ class JiraConnector(BaseConnector):
         jql = self._build_jql(since)
 
         try:
-            async with httpx.AsyncClient(headers=self._auth_header, timeout=30) as client:
+            async with httpx.AsyncClient(auth=self._auth, timeout=30) as client:
                 start_at = 0
                 total: int | None = None
+                rate_limit_retries = 0
 
                 while True:
                     params: dict[str, str | int] = {
@@ -212,13 +215,21 @@ class JiraConnector(BaseConnector):
                             params=params,
                         )
                         if resp.status_code == 429:
+                            rate_limit_retries += 1
+                            if rate_limit_retries > _MAX_RATE_LIMIT_RETRIES:
+                                err = f"rate limit exceeded after {_MAX_RATE_LIMIT_RETRIES} retries"
+                                self._last_sync_errors.append(err)
+                                log.error("jira_connector.rate_limit_retries_exhausted")
+                                return
                             retry_after = int(resp.headers.get("Retry-After", "5"))
                             log.warning(
                                 "jira_connector.rate_limited",
                                 retry_after=retry_after,
+                                attempt=rate_limit_retries,
                             )
                             await asyncio.sleep(retry_after)
                             continue
+                        rate_limit_retries = 0  # reset on successful response
                         resp.raise_for_status()
                     except httpx.HTTPError as exc:
                         self._last_sync_errors.append(str(exc))
@@ -425,12 +436,6 @@ class JiraConnector(BaseConnector):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _make_basic_auth_header(email: str, api_token: str) -> dict[str, str]:
-    credentials = f"{email}:{api_token}"
-    encoded = base64.b64encode(credentials.encode()).decode()
-    return {"Authorization": f"Basic {encoded}"}
 
 
 def _parse_jira_datetime(value: str) -> datetime.datetime:
