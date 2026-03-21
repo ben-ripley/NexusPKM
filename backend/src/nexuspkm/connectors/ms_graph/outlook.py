@@ -147,6 +147,19 @@ class OutlookConnector(BaseConnector):
 
         await asyncio.to_thread(_write)
 
+    @property
+    def config(self) -> OutlookConnectorConfig:
+        """Return the current connector configuration."""
+        return self._config
+
+    def update_config(self, **kwargs: object) -> None:
+        """Update connector configuration fields at runtime.
+
+        Only fields present in ``kwargs`` are updated; others are unchanged.
+        Uses ``model_copy`` so Pydantic validation is preserved.
+        """
+        self._config = self._config.model_copy(update=kwargs)
+
     async def fetch_deleted_ids(self, since: datetime.datetime | None = None) -> list[str]:
         """Return conversation IDs deleted via delta response."""
         state = await self.get_sync_state()
@@ -166,9 +179,8 @@ class OutlookConnector(BaseConnector):
             return
 
         state = await self.get_sync_state()
-        delta_token: str | None = state.extra.get("email_delta_token")  # type: ignore[assignment]
-        if not isinstance(delta_token, str):
-            delta_token = None
+        raw_delta = state.extra.get("email_delta_token")
+        delta_token: str | None = raw_delta if isinstance(raw_delta, str) else None
 
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
             email_docs, new_delta_token, deleted_conv_ids = await self._fetch_emails(
@@ -287,6 +299,7 @@ class OutlookConnector(BaseConnector):
         all_emails: list[dict[str, object]] = []
         deleted_conv_ids: list[str] = []
         new_delta_token: str | None = None
+        max_emails = self._config.max_emails_per_sync
 
         while next_url is not None:
             response = await self._request_with_retry(
@@ -305,7 +318,7 @@ class OutlookConnector(BaseConnector):
                         conv_id = str(item.get("conversationId", ""))
                         if conv_id:
                             deleted_conv_ids.append(conv_id)
-                    else:
+                    elif len(all_emails) < max_emails:
                         all_emails.append(item)
 
             delta_link = data.get("@odata.deltaLink")

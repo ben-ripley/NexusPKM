@@ -95,8 +95,8 @@ async def get_status(
     folders: list[str] = []
     calendar_window_days = 30
     if isinstance(connector, OutlookConnector):
-        folders = connector._config.folders
-        calendar_window_days = connector._config.calendar_window_days
+        folders = connector.config.folders
+        calendar_window_days = connector.config.calendar_window_days
 
     last_sync_at_str: str | None = None
     if status.last_sync_at is not None:
@@ -138,27 +138,37 @@ async def update_config(
     if not isinstance(connector, OutlookConnector):
         raise HTTPException(status_code=404, detail="Outlook connector not configured")
 
+    updates: dict[str, object] = {}
     if payload.folders is not None:
-        object.__setattr__(connector._config, "folders", payload.folders)
+        updates["folders"] = payload.folders
     if payload.exclude_folders is not None:
-        object.__setattr__(connector._config, "exclude_folders", payload.exclude_folders)
+        updates["exclude_folders"] = payload.exclude_folders
     if payload.sender_domains is not None:
-        object.__setattr__(connector._config, "sender_domains", payload.sender_domains)
+        updates["sender_domains"] = payload.sender_domains
     if payload.max_emails_per_sync is not None:
-        object.__setattr__(connector._config, "max_emails_per_sync", payload.max_emails_per_sync)
+        updates["max_emails_per_sync"] = payload.max_emails_per_sync
     if payload.calendar_window_days is not None:
-        object.__setattr__(connector._config, "calendar_window_days", payload.calendar_window_days)
+        updates["calendar_window_days"] = payload.calendar_window_days
 
-    new_interval = payload.sync_interval_minutes or connector._config.sync_interval_minutes
+    new_interval = (
+        payload.sync_interval_minutes
+        if payload.sync_interval_minutes is not None
+        else connector.config.sync_interval_minutes
+    )
+
     if payload.sync_interval_minutes is not None:
-        previous_interval = connector._config.sync_interval_minutes
-        object.__setattr__(connector._config, "sync_interval_minutes", new_interval)
+        previous_interval = connector.config.sync_interval_minutes
+        updates["sync_interval_minutes"] = new_interval
+        connector.update_config(**updates)
         try:
             scheduler.reschedule_connector("outlook", new_interval * 60)
         except Exception as exc:
-            object.__setattr__(connector._config, "sync_interval_minutes", previous_interval)
+            # Roll back all config changes (restore the previous interval)
+            connector.update_config(sync_interval_minutes=previous_interval)
             log.error("outlook_config_update_failed", error=str(exc), exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to reschedule connector") from exc
+    elif updates:
+        connector.update_config(**updates)
 
     log.info("outlook_config_updated", sync_interval_minutes=new_interval)
     return ConfigUpdatedResponse(sync_interval_minutes=new_interval)
