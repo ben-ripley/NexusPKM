@@ -20,6 +20,7 @@ from nexuspkm.api.entities import (
     get_graph_store,
 )
 from nexuspkm.api.entities import router as entities_router
+from nexuspkm.api.jira import router as jira_router
 from nexuspkm.api.obsidian import router as obsidian_router
 from nexuspkm.api.outlook import router as outlook_router
 from nexuspkm.api.providers import get_registry
@@ -152,6 +153,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         intervals["outlook"] = config.connectors.outlook.sync_interval_minutes * 60
         log.info("outlook_connector_registered")
 
+    if config.connectors.jira.enabled:
+        from nexuspkm.connectors.jira.connector import JiraConnector
+
+        _jira_connector = JiraConnector(
+            state_dir=data_dir / "connectors",
+            config=config.connectors.jira,
+        )
+        _connector_registry.register(_jira_connector)
+        intervals["jira"] = config.connectors.jira.sync_interval_minutes * 60
+        log.info("jira_connector_registered")
+
     if config.connectors.apple_notes.enabled:
         from nexuspkm.connectors.apple_notes.connector import AppleNotesConnector
 
@@ -201,6 +213,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from nexuspkm.api.apple_notes import (
         get_sync_scheduler as an_get_scheduler,
     )
+    from nexuspkm.api.jira import (
+        get_connector_registry as jira_get_registry,
+    )
+    from nexuspkm.api.jira import (
+        get_sync_scheduler as jira_get_scheduler,
+    )
     from nexuspkm.api.obsidian import (
         get_connector_registry as obs_get_registry,
     )
@@ -220,6 +238,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[obs_get_scheduler] = lambda: _sync_scheduler
     app.dependency_overrides[outlook_get_registry] = lambda: _connector_registry
     app.dependency_overrides[outlook_get_scheduler] = lambda: _sync_scheduler
+    app.dependency_overrides[jira_get_registry] = lambda: _connector_registry
+    app.dependency_overrides[jira_get_scheduler] = lambda: _sync_scheduler
     _sync_scheduler.start(intervals)
 
     if _obsidian_connector is not None and _knowledge_index is not None:
@@ -263,6 +283,7 @@ app.include_router(providers_router)
 app.include_router(engine_router)
 app.include_router(connectors_router)
 app.include_router(apple_notes_router)
+app.include_router(jira_router)
 app.include_router(outlook_router)
 app.include_router(obsidian_router)
 app.include_router(generic_connectors_router)
