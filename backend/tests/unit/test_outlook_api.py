@@ -230,6 +230,29 @@ def test_put_config_rolls_back_interval_on_scheduler_error(
     assert connector.config.sync_interval_minutes == original_interval
 
 
+def test_put_config_rolls_back_all_fields_on_scheduler_error(
+    connector: OutlookConnector,
+    registry: ConnectorRegistry,
+    scheduler: MagicMock,
+) -> None:
+    """Combined payload: interval + folders both rolled back when reschedule fails."""
+    scheduler.reschedule_connector.side_effect = RuntimeError("scheduler unavailable")
+    original_interval = connector.config.sync_interval_minutes
+    original_folders = connector.config.folders[:]
+
+    app = _make_app(registry, scheduler)
+    client = TestClient(app)
+    resp = client.put(
+        "/api/connectors/outlook/config",
+        json={"sync_interval_minutes": 60, "folders": ["Archive"]},
+    )
+
+    assert resp.status_code == 500
+    # Both interval and folders must be reverted
+    assert connector.config.sync_interval_minutes == original_interval
+    assert connector.config.folders == original_folders
+
+
 def test_put_config_no_interval_does_not_reschedule(
     registry: ConnectorRegistry,
     scheduler: MagicMock,

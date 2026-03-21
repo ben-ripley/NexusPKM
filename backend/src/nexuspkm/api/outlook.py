@@ -157,14 +157,14 @@ async def update_config(
     )
 
     if payload.sync_interval_minutes is not None:
-        previous_interval = connector.config.sync_interval_minutes
+        previous_config = connector.config  # snapshot full config before any changes
         updates["sync_interval_minutes"] = new_interval
         connector.update_config(**updates)
         try:
             scheduler.reschedule_connector("outlook", new_interval * 60)
         except Exception as exc:
-            # Roll back all config changes (restore the previous interval)
-            connector.update_config(sync_interval_minutes=previous_interval)
+            # Restore entire previous config (not just the interval)
+            connector.update_config(**previous_config.model_dump())
             log.error("outlook_config_update_failed", error=str(exc), exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to reschedule connector") from exc
     elif updates:

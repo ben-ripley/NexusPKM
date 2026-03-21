@@ -314,10 +314,18 @@ class OutlookConnector(BaseConnector):
                     if not isinstance(item, dict):
                         continue
                     if "@removed" in item:
-                        # Track deleted conversation IDs
+                        # Graph only guarantees `id` on removed items; `conversationId`
+                        # may be absent. Log a warning when it is so the deletion isn't
+                        # silently swallowed.
                         conv_id = str(item.get("conversationId", ""))
                         if conv_id:
                             deleted_conv_ids.append(conv_id)
+                        else:
+                            msg_id = str(item.get("id", "<unknown>"))
+                            log.warning(
+                                "outlook_connector.removed_item_missing_conversation_id",
+                                message_id=msg_id,
+                            )
                     elif len(all_emails) < max_emails:
                         all_emails.append(item)
 
@@ -397,7 +405,11 @@ class OutlookConnector(BaseConnector):
                 name = data.get("displayName", "")
                 return str(name) if name else ""
         except Exception:
-            log.warning("outlook_connector.folder_lookup_failed", folder_id=folder_id)
+            log.warning(
+                "outlook_connector.folder_lookup_failed",
+                folder_id=folder_id,
+                exc_info=True,
+            )
         return ""
 
     # ------------------------------------------------------------------
