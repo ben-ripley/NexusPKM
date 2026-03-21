@@ -8,14 +8,23 @@ NXP-68
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from nexuspkm.config.models import AppleNotesConnectorConfig
 from nexuspkm.connectors.apple_notes.connector import AppleNotesConnector
 from nexuspkm.models.document import SourceType
 
 _PATCH_SUBPROCESS = "nexuspkm.connectors.apple_notes.connector.subprocess.run"
+
+
+@pytest.fixture(autouse=True)
+def _patch_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulate macOS for all tests in this module."""
+    monkeypatch.setattr(sys, "platform", "darwin")
 
 
 def _make_connector(tmp_path: Path, **kwargs: object) -> AppleNotesConnector:

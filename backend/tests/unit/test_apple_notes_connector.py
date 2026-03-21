@@ -9,13 +9,26 @@ from __future__ import annotations
 
 import datetime
 import json
+import sys
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 from nexuspkm.config.models import AppleNotesConnectorConfig
 from nexuspkm.connectors.apple_notes.connector import AppleNotesConnector, _AppleNoteEntry
 from nexuspkm.models.document import SourceType
+
+
+@pytest.fixture(autouse=True)
+def _patch_macos(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulate macOS for all tests in this module.
+
+    Individual tests that need to test non-macOS behaviour override this with
+    ``patch("sys.platform", "linux")`` inside their body.
+    """
+    monkeypatch.setattr(sys, "platform", "darwin")
 
 
 def _make_connector(tmp_path: Path, **kwargs: object) -> AppleNotesConnector:
