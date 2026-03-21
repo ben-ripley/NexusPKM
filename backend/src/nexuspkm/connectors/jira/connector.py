@@ -75,6 +75,14 @@ class JiraConnector(BaseConnector):
         self._last_sync_errors: list[str] = []
 
     @property
+    def base_url(self) -> str:
+        return self._base_url
+
+    @property
+    def jql_filter(self) -> str:
+        return self._config.jql_filter
+
+    @property
     def sync_interval_minutes(self) -> int:
         return self._config.sync_interval_minutes
 
@@ -321,7 +329,9 @@ class JiraConnector(BaseConnector):
             sprint_name = str(sprints[-1].get("name", "")) or None
 
         story_points_raw = fields.get("customfield_10016")
-        story_points = float(str(story_points_raw)) if story_points_raw is not None else None
+        story_points = (
+            float(story_points_raw) if isinstance(story_points_raw, (int, float)) else None
+        )
 
         doc_id = str(uuid.uuid5(uuid.NAMESPACE_OID, f"jira_issue:{key}"))
 

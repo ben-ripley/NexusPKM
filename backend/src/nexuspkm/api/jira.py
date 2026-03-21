@@ -88,8 +88,8 @@ async def get_status(
     base_url = ""
     jql_filter = ""
     if isinstance(connector, JiraConnector):
-        base_url = connector._base_url
-        jql_filter = connector._config.jql_filter
+        base_url = connector.base_url
+        jql_filter = connector.jql_filter
 
     return JiraStatusResponse(
         status=status.status,

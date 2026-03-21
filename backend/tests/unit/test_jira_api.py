@@ -113,6 +113,7 @@ def test_post_sync_triggers_background_task(
     resp = client.post("/api/connectors/jira/sync")
     assert resp.status_code == 200
     assert resp.json()["status"] == "sync_started"
+    scheduler.trigger_sync.assert_called_once_with("jira")
 
 
 def test_post_sync_404_when_not_configured(scheduler: MagicMock) -> None:
