@@ -172,7 +172,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             initial_status = await connector.health_check()
             _connector_registry.update_status(connector.name, initial_status)
         except Exception as exc:  # pragma: no cover
-            log.warning("connector_startup_health_check_failed", connector=connector.name, error=str(exc))
+            log.warning(
+                "connector_startup_health_check_failed",
+                connector=connector.name,
+                error=str(exc),
+            )
 
     _sync_scheduler = SyncScheduler(_connector_registry, _knowledge_index)
     app.dependency_overrides[get_connector_registry] = lambda: _connector_registry

@@ -7,12 +7,11 @@ Spec: F-007
 from __future__ import annotations
 
 from collections.abc import Generator
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
-
-from pathlib import Path
 
 from nexuspkm.api.engine import get_knowledge_index
 from nexuspkm.api.search import get_graph_store as search_get_graph_store
