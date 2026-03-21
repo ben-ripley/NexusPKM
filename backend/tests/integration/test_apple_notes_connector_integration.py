@@ -15,6 +15,8 @@ from nexuspkm.config.models import AppleNotesConnectorConfig
 from nexuspkm.connectors.apple_notes.connector import AppleNotesConnector
 from nexuspkm.models.document import SourceType
 
+_PATCH_SUBPROCESS = "nexuspkm.connectors.apple_notes.connector.subprocess.run"
+
 
 def _make_connector(tmp_path: Path, **kwargs: object) -> AppleNotesConnector:
     config = AppleNotesConnectorConfig(enabled=True, **kwargs)  # type: ignore[arg-type]
@@ -63,7 +65,7 @@ async def test_full_sync_with_mocked_applescript(tmp_path: Path) -> None:
     mock_result = _mock_subprocess(notes)
     connector = _make_connector(tmp_path)
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch(_PATCH_SUBPROCESS, return_value=mock_result):
         docs = [doc async for doc in connector.fetch()]
 
     assert len(docs) == 3
@@ -78,7 +80,7 @@ async def test_full_sync_persists_state(tmp_path: Path) -> None:
     mock_result = _mock_subprocess(notes)
     connector = _make_connector(tmp_path)
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch(_PATCH_SUBPROCESS, return_value=mock_result):
         _ = [doc async for doc in connector.fetch()]
 
     state = await connector._load_note_state()
@@ -92,11 +94,11 @@ async def test_second_sync_skips_unchanged_notes(tmp_path: Path) -> None:
     mock_result = _mock_subprocess(notes)
     connector = _make_connector(tmp_path)
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch(_PATCH_SUBPROCESS, return_value=mock_result):
         first_docs = [doc async for doc in connector.fetch()]
     assert len(first_docs) == 2
 
-    with patch("subprocess.run", return_value=mock_result):
+    with patch(_PATCH_SUBPROCESS, return_value=mock_result):
         second_docs = [doc async for doc in connector.fetch()]
     assert second_docs == []
 
@@ -114,10 +116,10 @@ async def test_second_sync_yields_only_modified_note(tmp_path: Path) -> None:
 
     connector = _make_connector(tmp_path)
 
-    with patch("subprocess.run", return_value=_mock_subprocess(notes_v1)):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess(notes_v1)):
         _ = [doc async for doc in connector.fetch()]
 
-    with patch("subprocess.run", return_value=_mock_subprocess(notes_v2)):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess(notes_v2)):
         second_docs = [doc async for doc in connector.fetch()]
 
     assert len(second_docs) == 1
@@ -137,12 +139,12 @@ async def test_deletion_detection_across_two_syncs(tmp_path: Path) -> None:
     connector = _make_connector(tmp_path)
 
     # First sync: establish state for 3 notes
-    with patch("subprocess.run", return_value=_mock_subprocess(notes_v1)):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess(notes_v1)):
         first_docs = [doc async for doc in connector.fetch()]
     assert len(first_docs) == 3
 
     # Second sync: fetch_deleted_ids detects 2 deletions
-    with patch("subprocess.run", return_value=_mock_subprocess(notes_v2)):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess(notes_v2)):
         deleted_ids = await connector.fetch_deleted_ids()
 
     assert len(deleted_ids) == 2
@@ -161,14 +163,14 @@ async def test_deletion_ids_are_stable_doc_ids(tmp_path: Path) -> None:
     notes_all = [_make_note("n1"), _make_note("n2")]
     connector = _make_connector(tmp_path)
 
-    with patch("subprocess.run", return_value=_mock_subprocess(notes_all)):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess(notes_all)):
         initial_docs = [doc async for doc in connector.fetch()]
 
     n2_id = next(d.id for d in initial_docs if d.metadata.source_id == "n2")
     expected_id = str(_uuid.uuid5(_uuid.NAMESPACE_OID, "apple_note:n2"))
     assert n2_id == expected_id
 
-    with patch("subprocess.run", return_value=_mock_subprocess([_make_note("n1")])):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess([_make_note("n1")])):
         deleted_ids = await connector.fetch_deleted_ids()
 
     assert expected_id in deleted_ids
@@ -187,7 +189,7 @@ async def test_fetch_returns_empty_on_osascript_failure(tmp_path: Path) -> None:
     error_result.stderr = "Notes is not running"
 
     connector = _make_connector(tmp_path)
-    with patch("subprocess.run", return_value=error_result):
+    with patch(_PATCH_SUBPROCESS, return_value=error_result):
         docs = [doc async for doc in connector.fetch()]
 
     assert docs == []
@@ -202,7 +204,7 @@ async def test_health_check_degraded_after_error(tmp_path: Path) -> None:
     error_result.stderr = "error"
 
     connector = _make_connector(tmp_path)
-    with patch("subprocess.run", return_value=error_result):
+    with patch(_PATCH_SUBPROCESS, return_value=error_result):
         _ = [doc async for doc in connector.fetch()]
 
     with patch("sys.platform", "darwin"):
@@ -218,7 +220,7 @@ async def test_health_check_degraded_after_error(tmp_path: Path) -> None:
 
 async def test_sync_with_empty_note_list(tmp_path: Path) -> None:
     connector = _make_connector(tmp_path)
-    with patch("subprocess.run", return_value=_mock_subprocess([])):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess([])):
         docs = [doc async for doc in connector.fetch()]
     assert docs == []
 
@@ -231,7 +233,7 @@ async def test_sync_with_empty_note_list(tmp_path: Path) -> None:
 async def test_note_folder_in_custom_metadata(tmp_path: Path) -> None:
     notes = [_make_note("n1", name="Work Note", folder="Work Projects")]
     connector = _make_connector(tmp_path)
-    with patch("subprocess.run", return_value=_mock_subprocess(notes)):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess(notes)):
         docs = [doc async for doc in connector.fetch()]
     assert docs[0].metadata.custom["folder"] == "Work Projects"
 
@@ -239,7 +241,7 @@ async def test_note_folder_in_custom_metadata(tmp_path: Path) -> None:
 async def test_html_body_converted_to_markdown(tmp_path: Path) -> None:
     notes = [_make_note("n1", body="<h1>Meeting</h1><p>Action items</p>")]
     connector = _make_connector(tmp_path)
-    with patch("subprocess.run", return_value=_mock_subprocess(notes)):
+    with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess(notes)):
         docs = [doc async for doc in connector.fetch()]
     assert "Meeting" in docs[0].content
     assert "Action items" in docs[0].content

@@ -116,11 +116,17 @@ class AppleNotesConnector(BaseConnector):
         self._checkpoint_file = state_dir / "apple_notes_checkpoint.json"
         self._total_docs_synced = 0
         self._last_sync_errors: list[str] = []
+        self._notes_db_path = config.notes_db_path or _NOTES_DB_PATH
 
     @property
     def extraction_method(self) -> str:
         """The configured extraction method (``"applescript"`` or ``"sqlite"``)."""
         return self._config.extraction_method
+
+    @property
+    def sync_interval_minutes(self) -> int:
+        """Current sync interval in minutes."""
+        return self._config.sync_interval_minutes
 
     def update_sync_interval(self, minutes: int) -> None:
         """Update the sync interval in-memory.  Caller must reschedule the job."""
@@ -128,6 +134,7 @@ class AppleNotesConnector(BaseConnector):
             enabled=self._config.enabled,
             sync_interval_minutes=minutes,
             extraction_method=self._config.extraction_method,
+            notes_db_path=self._config.notes_db_path,
         )
 
     # ------------------------------------------------------------------
@@ -154,6 +161,8 @@ class AppleNotesConnector(BaseConnector):
         re-report the same deletions.
         """
         _ = since
+        if sys.platform != "darwin":
+            return []
         note_state = await self._load_note_state()
         if not note_state:
             return []
@@ -240,6 +249,9 @@ class AppleNotesConnector(BaseConnector):
 
     async def _fetch_gen(self, since: datetime.datetime | None) -> AsyncGenerator[Document, None]:
         _ = since
+        if sys.platform != "darwin":
+            log.warning("apple_notes_connector.unsupported_platform", platform=sys.platform)
+            return
         self._last_sync_errors = []
 
         try:
@@ -292,7 +304,11 @@ class AppleNotesConnector(BaseConnector):
                 timeout=120,
             )
 
-        result = await asyncio.to_thread(_run)
+        try:
+            result = await asyncio.to_thread(_run)
+        except subprocess.TimeoutExpired:
+            log.warning("apple_notes_connector.applescript_timeout", timeout_seconds=120)
+            raise RuntimeError("osascript timed out after 120 seconds") from None
         if result.returncode != 0:
             raise RuntimeError(f"osascript failed: {result.stderr.strip()}")
         return self._parse_applescript_output(result.stdout)
@@ -315,7 +331,7 @@ class AppleNotesConnector(BaseConnector):
 
     async def _fetch_via_sqlite(self) -> list[dict[str, str]]:
         """Fetch notes by reading NoteStore.sqlite directly (fallback method)."""
-        db_path = _NOTES_DB_PATH
+        db_path = self._notes_db_path
 
         def _query() -> list[dict[str, str]]:
             with sqlite3.connect(str(db_path)) as conn:
@@ -429,7 +445,9 @@ class AppleNotesConnector(BaseConnector):
                 return {
                     k: cast(_AppleNoteEntry, v)
                     for k, v in raw.items()
-                    if isinstance(v, dict) and "doc_id" in v and "modified" in v
+                    if isinstance(v, dict)
+                    and isinstance(v.get("doc_id"), str)
+                    and isinstance(v.get("modified"), str)
                 }
             except (json.JSONDecodeError, ValueError, TypeError):
                 log.warning("apple_notes_connector.state_load_failed", path=str(state_file))

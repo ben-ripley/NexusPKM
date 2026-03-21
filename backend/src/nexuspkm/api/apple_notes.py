@@ -124,8 +124,14 @@ async def update_config(
     if not isinstance(connector, AppleNotesConnector):
         raise HTTPException(status_code=404, detail="Apple Notes connector not configured")
 
+    previous_interval = connector.sync_interval_minutes
     connector.update_sync_interval(payload.sync_interval_minutes)
-    scheduler.reschedule_connector("apple_notes", payload.sync_interval_minutes * 60)
+    try:
+        scheduler.reschedule_connector("apple_notes", payload.sync_interval_minutes * 60)
+    except Exception as exc:
+        connector.update_sync_interval(previous_interval)
+        log.error("apple_notes_config_update_failed", error=str(exc), exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to reschedule connector") from exc
     log.info(
         "apple_notes_config_updated",
         sync_interval_minutes=payload.sync_interval_minutes,

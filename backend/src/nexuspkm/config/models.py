@@ -190,6 +190,16 @@ class AppleNotesConnectorConfig(BaseModel):
     enabled: bool = False
     sync_interval_minutes: int = Field(default=15, gt=0, le=1440)
     extraction_method: Literal["applescript", "sqlite"] = "applescript"
+    # Override path to NoteStore.sqlite (default: ~/Library/Group Containers/…).
+    # Configurable so tests and non-standard macOS layouts don't hit the real DB.
+    notes_db_path: Path | None = None
+
+    @field_validator("notes_db_path", mode="before")
+    @classmethod
+    def expand_notes_db_path(cls, v: object) -> Path | None:
+        if v is None:
+            return None
+        return Path(str(v)).expanduser()
 
 
 class ConnectorsConfig(BaseModel):
