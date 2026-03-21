@@ -88,7 +88,7 @@ async def get_status(
     connector = registry.get("apple_notes")
     extraction_method = "applescript"
     if isinstance(connector, AppleNotesConnector):
-        extraction_method = connector._config.extraction_method
+        extraction_method = connector.extraction_method
 
     return AppleNotesStatusResponse(
         status=status.status,

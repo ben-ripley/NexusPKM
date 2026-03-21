@@ -21,7 +21,7 @@ import sys
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator
 from pathlib import Path
-from typing import Any, TypedDict, cast
+from typing import TypedDict, cast
 
 import structlog
 
@@ -116,6 +116,11 @@ class AppleNotesConnector(BaseConnector):
         self._checkpoint_file = state_dir / "apple_notes_checkpoint.json"
         self._total_docs_synced = 0
         self._last_sync_errors: list[str] = []
+
+    @property
+    def extraction_method(self) -> str:
+        """The configured extraction method (``"applescript"`` or ``"sqlite"``)."""
+        return self._config.extraction_method
 
     def update_sync_interval(self, minutes: int) -> None:
         """Update the sync interval in-memory.  Caller must reschedule the job."""
@@ -300,7 +305,7 @@ class AppleNotesConnector(BaseConnector):
         if not output:
             return []
         try:
-            data: Any = json.loads(output)
+            data: object = json.loads(output)
             if not isinstance(data, list):
                 return []
             return [
@@ -317,8 +322,7 @@ class AppleNotesConnector(BaseConnector):
         db_path = _NOTES_DB_PATH
 
         def _query() -> list[dict[str, str]]:
-            conn = sqlite3.connect(str(db_path))
-            try:
+            with sqlite3.connect(str(db_path)) as conn:
                 cursor = conn.execute(_SQLITE_QUERY)
                 notes: list[dict[str, str]] = []
                 for row in cursor.fetchall():
@@ -337,15 +341,14 @@ class AppleNotesConnector(BaseConnector):
                         {
                             "id": str(note_id or ""),
                             "name": str(title or "Untitled"),
-                            "body": "",  # compressed in SQLite; not decoded in v1
+                            # SQLite body data is compressed; not decoded in v1
+                            "body": "",
                             "folder": str(folder or "Notes"),
                             "created": created_dt.isoformat(),
                             "modified": modified_dt.isoformat(),
                         }
                     )
                 return notes
-            finally:
-                conn.close()
 
         return await asyncio.to_thread(_query)
 
@@ -430,7 +433,7 @@ class AppleNotesConnector(BaseConnector):
                 return {
                     k: cast(_AppleNoteEntry, v)
                     for k, v in raw.items()
-                    if isinstance(v, dict)
+                    if isinstance(v, dict) and "doc_id" in v and "modified" in v
                 }
             except (json.JSONDecodeError, ValueError, TypeError):
                 log.warning(
