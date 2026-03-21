@@ -44,6 +44,7 @@ export default function SearchBar({
   }
 
   const handleSuggestionClick = (suggestion: string) => {
+    onQueryChange(suggestion)
     onSearch(suggestion)
     setShowSuggestions(false)
     setActiveIndex(-1)

@@ -11,7 +11,9 @@ Spec: F-007
 from __future__ import annotations
 
 import asyncio
+import urllib.parse
 from collections import Counter
+from pathlib import Path
 from typing import Annotated, Final
 
 import structlog
@@ -66,6 +68,11 @@ def get_graph_store() -> GraphStore:
     )
 
 
+def get_obsidian_vault_path() -> Path | None:
+    """Dependency: returns the Obsidian vault path if configured, else None."""
+    return None  # pragma: no cover
+
+
 # ---------------------------------------------------------------------------
 # POST /api/search
 # ---------------------------------------------------------------------------
@@ -75,13 +82,14 @@ def get_graph_store() -> GraphStore:
 async def search(
     request: SearchRequest,
     index: Annotated[KnowledgeIndex, Depends(get_knowledge_index)],
+    obsidian_vault_path: Annotated[Path | None, Depends(get_obsidian_vault_path)],
 ) -> SearchResponse:
     """Semantic search over the knowledge index."""
     result: RetrievalResult = await index.retrieve(
         request.query, top_k=request.top_k, filters=request.filters
     )
 
-    results = [_source_to_result(s) for s in result.sources]
+    results = [_source_to_result(s, obsidian_vault_path) for s in result.sources]
     facets = _build_facets(result)
 
     return SearchResponse(
@@ -92,7 +100,17 @@ async def search(
     )
 
 
-def _source_to_result(source: SourceAttribution) -> SearchResult:
+def _source_to_result(
+    source: SourceAttribution, obsidian_vault_path: Path | None = None
+) -> SearchResult:
+    raw_url: str | None = str(source.url) if source.url is not None else None
+    if (
+        raw_url is None
+        and source.source_type == SourceType.OBSIDIAN_NOTE
+        and obsidian_vault_path is not None
+    ):
+        abs_path = str(obsidian_vault_path / source.source_id)
+        raw_url = "obsidian://open?path=" + urllib.parse.quote(abs_path, safe="")
     return SearchResult(
         id=source.document_id,
         title=source.title,
@@ -101,7 +119,7 @@ def _source_to_result(source: SourceAttribution) -> SearchResult:
         source_id=source.source_id,
         relevance_score=source.relevance_score,
         created_at=source.created_at,
-        url=source.url,
+        url=raw_url,  # type: ignore[arg-type]
         matched_entities=[],
         related_documents=[],
     )

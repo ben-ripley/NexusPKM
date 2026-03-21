@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { cn } from '@/lib/utils'
+import { cn, formatSourceType, sourceTypeBadgeClass } from '@/lib/utils'
 import type { SourceAttribution } from '@/services/websocket'
 
 interface SourceCardProps {
@@ -54,8 +54,8 @@ export default function SourceCard({ source, index, highlighted }: SourceCardPro
         onClick={() => setExpanded(!expanded)}
       >
         <span className="font-mono text-xs text-muted-foreground">[{index + 1}]</span>
-        <Badge variant="secondary" className="shrink-0">
-          {source.source_type}
+        <Badge className={cn('shrink-0', sourceTypeBadgeClass(source.source_type))}>
+          {formatSourceType(source.source_type)}
         </Badge>
         <span className="text-xs text-muted-foreground">{scorePercent}%</span>
         <span className="min-w-0 flex-1 truncate font-medium">

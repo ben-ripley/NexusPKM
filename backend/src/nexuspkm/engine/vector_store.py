@@ -62,6 +62,7 @@ class VectorChunk(BaseModel):
     title: str
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    url: str | None = None
 
 
 class SearchFilters(BaseModel):
@@ -139,9 +140,23 @@ class VectorStore:
                 self._conn = await lancedb.connect_async(self._db_path)
 
             schema = self._build_schema()
-            existing = await self._conn.list_tables()
+            list_response = await self._conn.list_tables()
+            # lancedb ≥0.14 returns a ListTablesResponse object; extract the
+            # plain list before using `in` to avoid false negatives.
+            existing: list[str] = (
+                list_response.tables
+                if hasattr(list_response, "tables")
+                else list(list_response)
+            )
             if TABLE_NAME in existing:
                 self._table = await self._conn.open_table(TABLE_NAME)
+                # Schema migration: add url column if the table predates it.
+                # Pass a pa.field so the stored type (utf8) matches _build_schema
+                # exactly — the SQL-expression dict form maps VARCHAR to large_utf8
+                # which causes merge_insert to reject incoming utf8 data.
+                current_schema = await self._table.schema()
+                if "url" not in current_schema.names:
+                    await self._table.add_columns(pa.field("url", pa.string()))
             else:
                 self._table = await self._conn.create_table(TABLE_NAME, schema=schema)
 
@@ -203,7 +218,9 @@ class VectorStore:
         """Return the *top_k* most similar chunks to *vector*.
 
         Optionally filters by source_type and/or date range (created_at).
-        Score is computed as ``1.0 - cosine_distance``.
+        Score is computed as ``1.0 - cosine_distance`` where cosine_distance
+        is in [0, 2] for unit vectors, giving scores in [-1, 1] (negative
+        values are clamped to 0 by the retriever's combined-score formula).
         """
         if top_k <= 0:
             raise ValueError(f"top_k must be a positive integer, got {top_k}")
@@ -211,7 +228,7 @@ class VectorStore:
         if self._table is None:
             await self._open()
 
-        query = self._table.vector_search(vector)
+        query = self._table.vector_search(vector).distance_type("cosine")
 
         where_clause = self._build_where(filters)
         if where_clause:
@@ -245,6 +262,7 @@ class VectorStore:
                 pa.field("title", pa.string()),
                 pa.field("created_at", pa.timestamp("us", tz="UTC")),
                 pa.field("updated_at", pa.timestamp("us", tz="UTC")),
+                pa.field("url", pa.string()),
             ]
         )
 
@@ -265,6 +283,7 @@ class VectorStore:
                 "updated_at": pa.array(
                     [c.updated_at for c in chunks], type=pa.timestamp("us", tz="UTC")
                 ),
+                "url": [c.url for c in chunks],
             }
         )
 
@@ -316,6 +335,7 @@ class VectorStore:
             else:
                 created_at = created_at.astimezone(datetime.UTC)
 
+            url_val = rows["url"][i] if "url" in rows else None
             results.append(
                 ChunkResult(
                     chunk_id=rows["chunk_id"][i],
@@ -326,6 +346,7 @@ class VectorStore:
                     source_id=rows["source_id"][i],
                     title=rows["title"][i],
                     created_at=created_at,
+                    url=url_val if url_val else None,
                 )
             )
         return results

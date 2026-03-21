@@ -1,6 +1,6 @@
 import { BookOpen, GitBranch, Layers, Network } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
+import { cn, formatSourceType } from '@/lib/utils'
 import type { DashboardStats } from '@/services/api'
 
 interface StatTileProps {
@@ -81,7 +81,7 @@ export default function KnowledgeBaseStats({ stats, isLoading, className }: Prop
                   return (
                     <div key={source}>
                       <div className="mb-0.5 flex justify-between text-xs">
-                        <span className="text-muted-foreground">{source}</span>
+                        <span className="text-muted-foreground">{formatSourceType(source)}</span>
                         <span>{count}</span>
                       </div>
                       <div className="h-1.5 overflow-hidden rounded-full bg-muted">

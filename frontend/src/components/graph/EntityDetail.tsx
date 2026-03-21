@@ -67,10 +67,10 @@ export default function EntityDetail({ entityId, onClose }: Props) {
               </div>
               <div className="flex flex-col gap-1">
                 {data.relationships.map((r) => (
-                  <div key={r.id} className="rounded border px-2 py-1 text-sm">
-                    <span className="font-medium">{r.relationship_type}</span>
+                  <div key={`${r.rel_type}:${r.from_id}:${r.to_id}`} className="rounded border px-2 py-1 text-sm">
+                    <span className="font-medium">{r.rel_type}</span>
                     <span className="ml-2 text-xs text-muted-foreground">
-                      → {r.target_entity_id === entityId ? r.source_entity_id : r.target_entity_id}
+                      → {r.to_id === entityId ? r.from_id : r.to_id}
                     </span>
                   </div>
                 ))}

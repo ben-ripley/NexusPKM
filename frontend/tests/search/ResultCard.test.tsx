@@ -25,7 +25,7 @@ describe('ResultCard', () => {
   it('renders title, excerpt, source type badge, and relevance percentage', () => {
     render(<ResultCard result={makeResult()} index={0} />)
     expect(screen.getByText('Test Document')).toBeInTheDocument()
-    expect(screen.getByText('obsidian_note')).toBeInTheDocument()
+    expect(screen.getByText('Obsidian Note')).toBeInTheDocument()
     expect(screen.getByText('92%')).toBeInTheDocument()
   })
 

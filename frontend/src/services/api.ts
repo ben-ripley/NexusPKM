@@ -162,6 +162,7 @@ const ConnectorStatusSchema = z.object({
   last_sync_at: z.string().nullable().optional(),
   last_error: z.string().nullable().optional(),
   documents_synced: z.number(),
+  sync_errors: z.array(z.string()).optional(),
 })
 
 // ---------------------------------------------------------------------------
@@ -218,16 +219,12 @@ const GraphEntitySchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   entity_type: z.string(),
-  source_type: z.string(),
-  created_at: z.string(),
 })
 
 const GraphRelationshipSchema = z.object({
-  id: z.string().min(1),
-  source_entity_id: z.string().min(1),
-  target_entity_id: z.string().min(1),
-  relationship_type: z.string(),
-  properties: z.record(z.string(), z.unknown()),
+  rel_type: z.string(),
+  from_id: z.string().min(1),
+  to_id: z.string().min(1),
 })
 
 const GraphEntityDetailSchema = GraphEntitySchema.extend({
@@ -242,6 +239,8 @@ const GraphEntityDetailSchema = GraphEntitySchema.extend({
 export type GraphEntity = z.infer<typeof GraphEntitySchema>
 export type GraphRelationship = z.infer<typeof GraphRelationshipSchema>
 export type GraphEntityDetail = z.infer<typeof GraphEntityDetailSchema>
+// Convenience aliases matching the Kuzu API field names
+// rel_type = relationship_type, from_id = source_entity_id, to_id = target_entity_id
 
 // ---------------------------------------------------------------------------
 // Graph API functions
@@ -279,8 +278,8 @@ export async function fetchRelationships(type?: string, entityId?: string): Prom
 
 const ProviderHealthSchema = z.object({
   status: z.enum(['healthy', 'degraded', 'unavailable']),
-  latency_ms: z.number(),
-  error: z.string().optional(),
+  latency_ms: z.number().nullable(),
+  error: z.string().nullable().optional(),
 })
 
 const ActiveProvidersSchema = z.object({

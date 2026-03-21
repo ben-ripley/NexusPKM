@@ -101,6 +101,7 @@ class ConnectorStatusItem(BaseModel):
     last_sync_at: AwareDatetime | None = None
     last_error: str | None = None
     documents_synced: int = 0
+    sync_errors: list[str] = []
 
 
 class GenericConfigUpdate(BaseModel):
@@ -280,6 +281,7 @@ async def list_connector_statuses(
             last_sync_at=s.last_sync_at,
             last_error=s.last_error,
             documents_synced=s.documents_synced,
+            sync_errors=s.sync_errors,
         )
         for name, s in statuses.items()
     ]

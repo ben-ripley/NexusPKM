@@ -1,8 +1,8 @@
 import { createElement } from 'react'
 
-// Stub for react-force-graph used in jsdom test environments.
+// Stub for react-force-graph-2d used in jsdom test environments.
 // Canvas-based rendering is incompatible with jsdom, so we render a simple div.
-export function ForceGraph2D({
+export default function ForceGraph2D({
   graphData,
   onNodeClick,
 }: {

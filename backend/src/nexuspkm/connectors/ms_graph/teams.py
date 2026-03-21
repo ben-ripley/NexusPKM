@@ -159,7 +159,7 @@ class TeamsTranscriptConnector(BaseConnector):
                             duration_minutes=meeting_meta["duration_minutes"],
                             participants=meeting_meta["participants"],
                         )
-                        doc = self._to_document(parsed)
+                        doc = self._to_document(parsed, join_web_url=meeting_meta["join_web_url"])
                         self._total_docs_synced += 1
                         yield doc
                     except Exception:
@@ -286,7 +286,7 @@ class TeamsTranscriptConnector(BaseConnector):
     # Private: document transformation
     # ------------------------------------------------------------------
 
-    def _to_document(self, parsed: ParsedTranscript) -> Document:
+    def _to_document(self, parsed: ParsedTranscript, *, join_web_url: str | None = None) -> Document:
         """Transform a ParsedTranscript into the canonical Document schema (FR-5)."""
         now = datetime.datetime.now(tz=datetime.UTC)
         content = parsed.full_text or f"Meeting: {parsed.title}"
@@ -302,6 +302,7 @@ class TeamsTranscriptConnector(BaseConnector):
                 created_at=parsed.date,
                 updated_at=parsed.date,
                 synced_at=now,
+                url=join_web_url,  # type: ignore[arg-type]
                 custom={
                     "duration_minutes": parsed.duration_minutes,
                     "segments": [s.model_dump() for s in parsed.segments],
@@ -320,10 +321,11 @@ class _MeetingMeta(TypedDict):
     start_dt: datetime.datetime
     duration_minutes: int
     participants: list[str]
+    join_web_url: str | None
 
 
 def _parse_meeting_meta(meeting: dict[str, object]) -> _MeetingMeta:
-    """Extract title, start_dt, duration_minutes, and participants from a Graph meeting dict."""
+    """Extract title, start_dt, duration_minutes, participants and join URL from a Graph meeting dict."""
     title = str(meeting.get("subject") or "Untitled Meeting")
 
     start_str = str(meeting.get("startDateTime") or "")
@@ -357,11 +359,15 @@ def _parse_meeting_meta(meeting: dict[str, object]) -> _MeetingMeta:
             if name and isinstance(name, str):
                 participants.append(name)
 
+    raw_join_url = meeting.get("joinWebUrl")
+    join_web_url = str(raw_join_url) if isinstance(raw_join_url, str) and raw_join_url else None
+
     return _MeetingMeta(
         title=title,
         start_dt=start_dt,
         duration_minutes=duration_minutes,
         participants=participants,
+        join_web_url=join_web_url,
     )
 
 

@@ -29,6 +29,7 @@ class ConnectorStatus(BaseModel):
     last_sync_at: AwareDatetime | None = None
     last_error: str | None = None
     documents_synced: int = 0
+    sync_errors: list[str] = []
 
 
 class BaseConnector(ABC):

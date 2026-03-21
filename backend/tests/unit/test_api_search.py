@@ -12,8 +12,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from pathlib import Path
+
 from nexuspkm.api.engine import get_knowledge_index
 from nexuspkm.api.search import get_graph_store as search_get_graph_store
+from nexuspkm.api.search import get_obsidian_vault_path as search_get_obsidian_vault_path
 from nexuspkm.engine.graph_store import GraphStore
 from nexuspkm.engine.index import KnowledgeIndex
 from nexuspkm.main import app
@@ -269,6 +272,58 @@ def test_suggest_deduplicates_names(client: TestClient, mock_graph: MagicMock) -
     assert response.status_code == 200
     data = response.json()
     assert data.count("Alpha") == 1
+
+
+def test_search_obsidian_url_reconstructed_from_vault_path(
+    client: TestClient, mock_index: MagicMock
+) -> None:
+    """URL should be built from vault_path + source_id for obsidian_note sources."""
+    vault = Path("/Users/test/vault")
+    source = SourceAttribution.model_validate(
+        {
+            "document_id": "doc-obs",
+            "title": "My Note",
+            "source_type": "obsidian_note",
+            "source_id": "folder/note.md",
+            "excerpt": "some text",
+            "relevance_score": 0.7,
+            "created_at": _NOW,
+        }
+    )
+    mock_index.retrieve = AsyncMock(return_value=_make_retrieval_result(sources=[source]))
+    app.dependency_overrides[search_get_obsidian_vault_path] = lambda: vault
+    try:
+        response = client.post("/api/search", json={"query": "test"})
+    finally:
+        app.dependency_overrides.pop(search_get_obsidian_vault_path, None)
+
+    assert response.status_code == 200
+    result = response.json()["results"][0]
+    assert result["url"] is not None
+    assert result["url"].startswith("obsidian://open?path=")
+    assert "folder" in result["url"]
+    assert "note.md" in result["url"]
+
+
+def test_search_obsidian_url_none_when_no_vault_path(
+    client: TestClient, mock_index: MagicMock
+) -> None:
+    """URL should be None when no vault path is configured."""
+    source = SourceAttribution.model_validate(
+        {
+            "document_id": "doc-obs",
+            "title": "My Note",
+            "source_type": "obsidian_note",
+            "source_id": "folder/note.md",
+            "excerpt": "some text",
+            "relevance_score": 0.7,
+            "created_at": _NOW,
+        }
+    )
+    mock_index.retrieve = AsyncMock(return_value=_make_retrieval_result(sources=[source]))
+    response = client.post("/api/search", json={"query": "test"})
+    assert response.status_code == 200
+    assert response.json()["results"][0]["url"] is None
 
 
 # ---------------------------------------------------------------------------

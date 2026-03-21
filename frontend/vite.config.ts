@@ -10,12 +10,18 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    proxy: {
+      '/api': 'http://127.0.0.1:8000',
+      '/ws': { target: 'ws://127.0.0.1:8000', ws: true },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
     alias: {
-      'react-force-graph': path.resolve(__dirname, './src/test/mocks/react-force-graph.tsx'),
+      'react-force-graph-2d': path.resolve(__dirname, './src/test/mocks/react-force-graph.tsx'),
     },
   },
 })

@@ -63,6 +63,7 @@ def _make_mock_table(arrow_result: pa.Table | None = None) -> MagicMock:
         arrow_result = _make_arrow_result()
 
     search_chain = MagicMock()
+    search_chain.distance_type = MagicMock(return_value=search_chain)
     search_chain.where = MagicMock(return_value=search_chain)
     search_chain.limit = MagicMock(return_value=search_chain)
     search_chain.to_arrow = AsyncMock(return_value=arrow_result)
@@ -77,6 +78,15 @@ def _make_mock_table(arrow_result: pa.Table | None = None) -> MagicMock:
     mock_table.delete = AsyncMock()
     mock_table.merge_insert = MagicMock(return_value=merge_builder)
     mock_table.vector_search = MagicMock(return_value=search_chain)
+    mock_table.add_columns = AsyncMock(return_value=None)
+    # schema() is async in lancedb 0.30; return a mock with .names including url
+    # so the migration branch is skipped in tests that open an existing table.
+    schema_result = MagicMock()
+    schema_result.names = [
+        "chunk_id", "document_id", "text", "vector",
+        "source_type", "source_id", "title", "created_at", "updated_at", "url",
+    ]
+    mock_table.schema = AsyncMock(return_value=schema_result)
     # Expose search_chain so tests can assert on it via store._table._search_chain
     mock_table._search_chain = search_chain
     return mock_table

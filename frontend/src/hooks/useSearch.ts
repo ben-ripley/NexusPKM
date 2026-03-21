@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import {
   searchDocuments,
@@ -17,8 +18,11 @@ function useDebounce<T>(value: T, delayMs: number): T {
 }
 
 export function useSearch() {
-  const [query, setQuery] = useState('')
+  const [searchParams] = useSearchParams()
+  const urlQuery = searchParams.get('q') ?? ''
+  const [query, setQuery] = useState(urlQuery)
   const [filters, setFilters] = useState<SearchFilters>({})
+  const [filtersInitialized, setFiltersInitialized] = useState(false)
   const debouncedQuery = useDebounce(query, 300)
 
   const searchMutation = useMutation<SearchResponse, Error, SearchRequest>({
@@ -37,6 +41,23 @@ export function useSearch() {
     queryFn: fetchSearchFacets,
     staleTime: Infinity,
   })
+
+  const availableSourceTypes = facetsQuery.data?.source_types ?? []
+
+  // Once the available source types load, initialize all checkboxes to checked.
+  // If a query was passed via URL (?q=), fire the search immediately.
+  // The guard ensures we only do this once — subsequent filter changes by the
+  // user are not overwritten.
+  useEffect(() => {
+    if (!filtersInitialized && availableSourceTypes.length > 0) {
+      const initialFilters: SearchFilters = { source_types: availableSourceTypes }
+      setFilters(initialFilters)
+      setFiltersInitialized(true)
+      if (urlQuery) {
+        searchMutation.mutate({ query: urlQuery, filters: initialFilters, top_k: 20 })
+      }
+    }
+  }, [availableSourceTypes, filtersInitialized]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const search = useCallback(
     (q: string, f?: SearchFilters) => {
@@ -57,7 +78,7 @@ export function useSearch() {
     isSearching: searchMutation.isPending,
     searchError: searchMutation.error,
     suggestions: suggestQuery.data ?? [],
-    availableSourceTypes: facetsQuery.data?.source_types ?? [],
+    availableSourceTypes,
     search,
   }
 }

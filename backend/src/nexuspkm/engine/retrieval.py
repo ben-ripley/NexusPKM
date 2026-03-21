@@ -125,15 +125,17 @@ class HybridRetriever:
             combined = max(0.0, min(1.0, combined))
             scored.append((combined, chunk))
 
-        # 6. Sort descending, deduplicate by chunk_id, take top_k
+        # 6. Sort descending, deduplicate by document_id (keep best chunk per
+        # document), take top_k. Deduplicating by document_id rather than
+        # chunk_id ensures each source document appears at most once in results.
         scored.sort(key=lambda t: t[0], reverse=True)
-        seen: set[str] = set()
+        seen_docs: set[str] = set()
         top_chunks: list[ChunkResult] = []
         top_scores: list[float] = []
         for score, chunk in scored:
-            if chunk.chunk_id in seen:
+            if chunk.document_id in seen_docs:
                 continue
-            seen.add(chunk.chunk_id)
+            seen_docs.add(chunk.document_id)
             top_chunks.append(chunk)
             top_scores.append(score)
             if len(top_chunks) >= top_k:
@@ -149,6 +151,7 @@ class HybridRetriever:
                 excerpt=chunk.text[:_EXCERPT_MAX_CHARS],
                 relevance_score=score,
                 created_at=chunk.created_at,
+                url=chunk.url,  # type: ignore[arg-type]
             )
             for chunk, score in zip(top_chunks, top_scores, strict=True)
         ]

@@ -23,6 +23,7 @@ from nexuspkm.api.obsidian import router as obsidian_router
 from nexuspkm.api.providers import get_registry
 from nexuspkm.api.providers import router as providers_router
 from nexuspkm.api.search import get_graph_store as search_get_graph_store
+from nexuspkm.api.search import get_obsidian_vault_path as search_get_obsidian_vault_path
 from nexuspkm.api.search import router as search_router
 from nexuspkm.config.loader import load_config
 from nexuspkm.connectors.registry import ConnectorRegistry
@@ -148,7 +149,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
         _connector_registry.register(_obsidian_connector)
         intervals["obsidian"] = config.connectors.obsidian.sync_interval_minutes * 60
+        _vault = _obsidian_connector.vault_path
+        app.dependency_overrides[search_get_obsidian_vault_path] = lambda: _vault
         log.info("obsidian_connector_registered")
+
+    # Run startup health checks so the UI shows real status before the first
+    # scheduled sync fires.
+    for connector in _connector_registry.all_connectors():
+        try:
+            initial_status = await connector.health_check()
+            _connector_registry.update_status(connector.name, initial_status)
+        except Exception as exc:  # pragma: no cover
+            log.warning("connector_startup_health_check_failed", connector=connector.name, error=str(exc))
 
     _sync_scheduler = SyncScheduler(_connector_registry, _knowledge_index)
     app.dependency_overrides[get_connector_registry] = lambda: _connector_registry

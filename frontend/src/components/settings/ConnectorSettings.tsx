@@ -1,4 +1,5 @@
-import { AlertTriangle, Clock, RefreshCw } from 'lucide-react'
+import { useState } from 'react'
+import { AlertTriangle, Clock, Loader2, RefreshCw } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -9,15 +10,35 @@ import { fetchConnectorStatuses, triggerConnectorSync } from '@/services/api'
 
 export default function ConnectorSettings() {
   const queryClient = useQueryClient()
+  // Track when each connector sync was triggered (name → timestamp)
+  const [syncingAt, setSyncingAt] = useState<Record<string, number>>({})
+
   const { data: connectors = [], isLoading, isError } = useQuery({
     queryKey: ['connectors', 'status'],
     queryFn: fetchConnectorStatuses,
+    // Poll every 3 s while any connector is in the syncing window
+    refetchInterval: Object.keys(syncingAt).length > 0 ? 3_000 : false,
   })
+
+  // Clear syncing state for connectors whose last_sync_at is now after trigger time
+  const activeSyncingAt = { ...syncingAt }
+  for (const c of connectors) {
+    const triggeredAt = syncingAt[c.name]
+    if (triggeredAt && c.last_sync_at && new Date(c.last_sync_at).getTime() >= triggeredAt) {
+      delete activeSyncingAt[c.name]
+    }
+  }
+
   const syncMutation = useMutation({
     mutationFn: (name: string) => triggerConnectorSync(name),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['connectors', 'status'] }),
+    onSuccess: (_data, name) => {
+      setSyncingAt((prev) => ({ ...prev, [name]: Date.now() }))
+      queryClient.invalidateQueries({ queryKey: ['connectors', 'status'] })
+    },
   })
-  const syncingName = syncMutation.isPending ? syncMutation.variables : null
+
+  const isSyncing = (name: string) =>
+    syncMutation.isPending && syncMutation.variables === name || name in activeSyncingAt
 
   return (
     <div className="rounded-lg border bg-card p-6">
@@ -32,7 +53,7 @@ export default function ConnectorSettings() {
       )}
 
       {isError && (
-        <p className="flex items-center gap-2 text-sm text-red-500">
+        <p className="flex items-center gap-2 text-sm text-red-500/80">
           <AlertTriangle className="size-4" />
           Failed to load connector status
         </p>
@@ -50,8 +71,13 @@ export default function ConnectorSettings() {
               <div key={c.name} className="rounded-md border p-4">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
-                    {cfg.icon}
+                    {isSyncing(c.name) ? (
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    ) : cfg.icon}
                     <span className="text-sm font-medium capitalize">{c.name}</span>
+                    {isSyncing(c.name) && (
+                      <span className="text-xs text-muted-foreground">Syncing…</span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge className={cn('text-xs capitalize', cfg.badge)}>{c.status}</Badge>
@@ -59,13 +85,11 @@ export default function ConnectorSettings() {
                       size="sm"
                       variant="outline"
                       className="h-7 gap-1 px-2 text-xs"
-                      disabled={syncingName === c.name}
+                      disabled={isSyncing(c.name)}
                       onClick={() => syncMutation.mutate(c.name)}
                       aria-label={`Sync ${c.name}`}
                     >
-                      <RefreshCw
-                        className={cn('size-3', syncingName === c.name && 'animate-spin')}
-                      />
+                      <RefreshCw className={cn('size-3', isSyncing(c.name) && 'animate-spin')} />
                       Sync
                     </Button>
                   </div>
@@ -79,11 +103,25 @@ export default function ConnectorSettings() {
                     </span>
                   )}
                   {c.last_error && (
-                    <span className="truncate text-red-500" title={c.last_error}>
+                    <span className="truncate text-red-500/80" title={c.last_error}>
                       {c.last_error}
                     </span>
                   )}
                 </div>
+                {c.sync_errors && c.sync_errors.length > 0 && (
+                  <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 dark:border-red-900/40 dark:bg-red-950/20">
+                    <p className="mb-1 text-xs font-medium text-red-600 dark:text-red-400">
+                      {c.sync_errors.length} file{c.sync_errors.length === 1 ? '' : 's'} failed to sync
+                    </p>
+                    <ul className="space-y-0.5">
+                      {c.sync_errors.map((err, i) => (
+                        <li key={i} className="truncate font-mono text-xs text-red-500/80 dark:text-red-400/70" title={err}>
+                          {err}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )
           })}

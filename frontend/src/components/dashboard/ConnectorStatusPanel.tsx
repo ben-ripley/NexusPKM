@@ -17,7 +17,7 @@ const STATUS_CONFIG: Record<ConnectorStatus['status'], { icon: ReactNode; badge:
       badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
     },
     unavailable: {
-      icon: <XCircle className="size-4 text-red-500" />,
+      icon: <XCircle className="size-4 text-red-500/80" />,
       badge: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
     },
   }
@@ -88,7 +88,7 @@ export default function ConnectorStatusPanel({ connectors, isLoading, onSync, is
                     </span>
                   )}
                   {c.last_error && (
-                    <span className="truncate text-red-500" title={c.last_error}>
+                    <span className="truncate text-red-500/80" title={c.last_error}>
                       {c.last_error}
                     </span>
                   )}

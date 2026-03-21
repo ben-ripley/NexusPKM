@@ -32,7 +32,7 @@ Personal knowledge management application that consolidates data from Microsoft 
 ```bash
 cd backend
 uv sync --extra dev
-uvicorn nexuspkm.main:app --reload
+uv run uvicorn nexuspkm.main:app --reload
 ```
 
 ### Frontend

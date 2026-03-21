@@ -43,6 +43,7 @@ class BedrockLLMProvider(BaseLLMProvider):
                 region_name=config.region or "us-east-1",
                 max_tokens=config.max_tokens,
                 temperature=config.temperature,
+                context_size=config.context_window,
             )
 
     async def generate(self, messages: list[dict[str, str]], **kwargs: object) -> LLMResponse:

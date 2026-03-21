@@ -18,6 +18,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import urllib.parse
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -56,6 +57,7 @@ class ObsidianNotesConnector(BaseConnector):
         self._state_file = state_dir / "obsidian_sync_state.json"
         self._file_state_file = state_dir / "obsidian_file_state.json"
         self._total_docs_synced = 0
+        self._last_sync_errors: list[str] = []
         self._watcher_task: asyncio.Task[None] | None = None
 
     # ------------------------------------------------------------------
@@ -145,17 +147,23 @@ class ObsidianNotesConnector(BaseConnector):
         exists = await asyncio.to_thread(
             lambda: self._vault_path.exists() and self._vault_path.is_dir()
         )
+        # Use the persisted file-state cache as the source of truth for document
+        # count — it survives server restarts unlike the in-memory counter.
+        file_state = await self._load_file_state()
+        docs_count = len(file_state)
         if not exists:
             return ConnectorStatus(
                 name=self.name,
                 status="unavailable",
                 last_error=f"Vault not found: {self._vault_path}",
-                documents_synced=self._total_docs_synced,
+                documents_synced=docs_count,
+                sync_errors=list(self._last_sync_errors),
             )
         return ConnectorStatus(
             name=self.name,
-            status="healthy",
-            documents_synced=self._total_docs_synced,
+            status="healthy" if not self._last_sync_errors else "degraded",
+            documents_synced=docs_count,
+            sync_errors=list(self._last_sync_errors),
         )
 
     async def get_sync_state(self) -> SyncState:
@@ -315,6 +323,8 @@ class ObsidianNotesConnector(BaseConnector):
         # cache, which is more reliable than a bare timestamp comparison (handles clock
         # skew and sub-second writes on coarse-resolution filesystems).
         _ = since
+        # Clear errors from the previous run so health_check reflects only the latest sync.
+        self._last_sync_errors = []
         # NOTE: watcher (_handle_upsert/_handle_delete) can write file state concurrently
         # with this generator.  For v1 (local, single-user) the worst outcome is a
         # harmless re-index of a note on the next scheduled run; no index documents are lost.
@@ -362,7 +372,8 @@ class ObsidianNotesConnector(BaseConnector):
                     self._total_docs_synced += 1
                     yield doc
 
-                except Exception:
+                except Exception as exc:
+                    self._last_sync_errors.append(f"{rel}: {exc}")
                     log.warning(
                         "obsidian_connector.file_read_failed",
                         path=str(path),
@@ -454,6 +465,9 @@ class ObsidianNotesConnector(BaseConnector):
 
         plain = parsed.plain_content or title
 
+        abs_path = str(self._vault_path / source_id)
+        obsidian_url = "obsidian://open?path=" + urllib.parse.quote(abs_path, safe="")
+
         return Document(
             id=doc_id,
             content=plain,
@@ -465,6 +479,7 @@ class ObsidianNotesConnector(BaseConnector):
                 created_at=created_at,
                 updated_at=updated_at,
                 synced_at=now,
+                url=obsidian_url,  # type: ignore[arg-type]
                 custom={
                     "wikilinks": parsed.wikilinks,
                     "embeds": parsed.embeds,

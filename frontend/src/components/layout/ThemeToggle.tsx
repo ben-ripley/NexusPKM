@@ -1,9 +1,9 @@
-import { Moon, Sun } from 'lucide-react'
+import { Monitor, Moon, Sun } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useThemeStore } from '@/stores/theme'
 
 export function ThemeToggle() {
-  const { resolvedTheme, setTheme, theme } = useThemeStore()
+  const { setTheme, theme } = useThemeStore()
 
   const cycleTheme = () => {
     const next = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light'
@@ -16,11 +16,14 @@ export function ThemeToggle() {
       size="icon-sm"
       onClick={cycleTheme}
       aria-label={`Theme: ${theme}`}
+      title={`Theme: ${theme}`}
     >
-      {resolvedTheme === 'dark' ? (
+      {theme === 'dark' ? (
         <Moon className="size-4" />
-      ) : (
+      ) : theme === 'light' ? (
         <Sun className="size-4" />
+      ) : (
+        <Monitor className="size-4" />
       )}
     </Button>
   )

@@ -39,8 +39,8 @@ describe('KnowledgeBaseStats', () => {
 
   it('renders bar chart entries for source types', () => {
     render(<KnowledgeBaseStats stats={mockStats} isLoading={false} />)
-    expect(screen.getByText('obsidian_note')).toBeInTheDocument()
-    expect(screen.getByText('teams_transcript')).toBeInTheDocument()
+    expect(screen.getByText('Obsidian Note')).toBeInTheDocument()
+    expect(screen.getByText('Teams Transcript')).toBeInTheDocument()
     expect(screen.getByText('60')).toBeInTheDocument()
     expect(screen.getByText('40')).toBeInTheDocument()
   })
@@ -48,6 +48,6 @@ describe('KnowledgeBaseStats', () => {
   it('does not render bar chart when by_source_type is empty', () => {
     const statsNoSource: DashboardStats = { ...mockStats, by_source_type: {} }
     render(<KnowledgeBaseStats stats={statsNoSource} isLoading={false} />)
-    expect(screen.queryByText('obsidian_note')).not.toBeInTheDocument()
+    expect(screen.queryByText('Obsidian Note')).not.toBeInTheDocument()
   })
 })

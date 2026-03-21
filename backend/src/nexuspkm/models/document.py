@@ -104,6 +104,7 @@ class ChunkResult(BaseModel):
     source_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     created_at: AwareDatetime
+    url: str | None = None
 
 
 class EntityResult(BaseModel):
@@ -141,4 +142,5 @@ class SyncState(BaseModel):
 
     last_synced_at: AwareDatetime | None = None
     cursor: str | None = None
+    documents_synced: int = 0
     extra: dict[str, object] = Field(default_factory=dict)

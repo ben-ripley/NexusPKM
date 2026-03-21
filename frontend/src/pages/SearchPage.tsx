@@ -21,7 +21,7 @@ export default function SearchPage() {
   return (
     <div className="flex flex-1 overflow-hidden">
       <SearchFiltersPanel
-        className="w-60 shrink-0 border-r p-4"
+        className="w-60 shrink-0 border-r bg-sidebar p-4"
         filters={filters}
         availableSourceTypes={availableSourceTypes}
         onChange={(f) => {

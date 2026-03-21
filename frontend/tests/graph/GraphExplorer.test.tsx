@@ -26,16 +26,16 @@ const ENTITY_TYPES = [...ALL_ENTITY_TYPES]
 
 function makeEntities() {
   return [
-    { id: 'e1', name: 'Alice', entity_type: 'person', source_type: 'teams', created_at: '2026-03-01T00:00:00Z' },
-    { id: 'e2', name: 'Project X', entity_type: 'project', source_type: 'jira', created_at: '2026-03-02T00:00:00Z' },
-    { id: 'e3', name: 'AI Topic', entity_type: 'topic', source_type: 'obsidian', created_at: '2026-03-03T00:00:00Z' },
+    { id: 'e1', name: 'Alice', entity_type: 'person' },
+    { id: 'e2', name: 'Project X', entity_type: 'project' },
+    { id: 'e3', name: 'AI Topic', entity_type: 'topic' },
   ]
 }
 
 function makeRelationships() {
   return [
-    { id: 'r1', source_entity_id: 'e1', target_entity_id: 'e2', relationship_type: 'works_on', properties: {} },
-    { id: 'r2', source_entity_id: 'e2', target_entity_id: 'e3', relationship_type: 'relates_to', properties: {} },
+    { rel_type: 'works_on', from_id: 'e1', to_id: 'e2' },
+    { rel_type: 'relates_to', from_id: 'e2', to_id: 'e3' },
   ]
 }
 
@@ -166,16 +166,12 @@ describe('EntityDetail', () => {
     id: 'e1',
     name: 'Alice',
     entity_type: 'person',
-    source_type: 'teams',
-    created_at: '2026-03-01T00:00:00Z',
     properties: { role: 'Engineer' },
     relationships: [
       {
-        id: 'r1',
-        source_entity_id: 'e1',
-        target_entity_id: 'e2',
-        relationship_type: 'works_on',
-        properties: {},
+        rel_type: 'works_on',
+        from_id: 'e1',
+        to_id: 'e2',
       },
     ],
   }

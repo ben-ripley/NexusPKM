@@ -31,6 +31,9 @@ class LLMProviderConfig(BaseModel):
     base_url: str | None = None
     max_tokens: int = Field(default=4096, gt=0)
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+    # Required for cross-region inference profile IDs (e.g. us.* / eu.*) because
+    # LlamaIndex cannot look up the context size for non-foundation model IDs.
+    context_window: int = Field(default=200_000, gt=0)
 
 
 class EmbeddingProviderConfig(BaseModel):

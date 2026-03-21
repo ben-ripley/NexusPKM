@@ -13,8 +13,8 @@ describe('SearchFilters', () => {
         onChange={vi.fn()}
       />
     )
-    expect(screen.getByLabelText('obsidian_note')).toBeInTheDocument()
-    expect(screen.getByLabelText('teams_transcript')).toBeInTheDocument()
+    expect(screen.getByLabelText('Obsidian Note')).toBeInTheDocument()
+    expect(screen.getByLabelText('Teams Transcript')).toBeInTheDocument()
   })
 
   it('checking a source type calls onChange with updated filter', async () => {
@@ -27,13 +27,13 @@ describe('SearchFilters', () => {
         onChange={onChange}
       />
     )
-    await user.click(screen.getByLabelText('obsidian_note'))
+    await user.click(screen.getByLabelText('Obsidian Note'))
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ source_types: ['obsidian_note'] })
     )
   })
 
-  it('renders from and to date inputs', () => {
+  it('renders From and To date picker buttons', () => {
     render(
       <SearchFilters
         filters={{}}
@@ -41,8 +41,9 @@ describe('SearchFilters', () => {
         onChange={vi.fn()}
       />
     )
-    expect(screen.getByLabelText(/from/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/to/i)).toBeInTheDocument()
+    expect(screen.getByLabelText('From')).toBeInTheDocument()
+    expect(screen.getByLabelText('To')).toBeInTheDocument()
+    expect(screen.getAllByText('Pick a date')).toHaveLength(2)
   })
 
   it('Clear all calls onChange with empty object', async () => {

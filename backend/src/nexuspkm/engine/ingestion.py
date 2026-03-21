@@ -68,6 +68,7 @@ class IngestionPipeline:
 
         # 3. Build VectorChunks and store
         # chunk_id format: "{document_id}:{chunk_index}" (deterministic)
+        doc_url = str(document.metadata.url) if document.metadata.url is not None else None
         chunks: list[VectorChunk] = [
             VectorChunk(
                 chunk_id=f"{document.id}:{i}",
@@ -79,6 +80,7 @@ class IngestionPipeline:
                 title=document.metadata.title,
                 created_at=document.metadata.created_at,
                 updated_at=document.metadata.updated_at,
+                url=doc_url,
             )
             for i, (text, vector) in enumerate(zip(texts, vectors, strict=True))
         ]

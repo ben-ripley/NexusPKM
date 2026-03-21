@@ -29,7 +29,7 @@ export default function ProviderSettings() {
             <Skeleton className="h-4 w-48" />
           </div>
         ) : activeQuery.isError ? (
-          <p className="flex items-center gap-2 text-sm text-red-500">
+          <p className="flex items-center gap-2 text-sm text-red-500/80">
             <AlertTriangle className="size-4" />
             Failed to load provider configuration
           </p>
@@ -58,7 +58,7 @@ export default function ProviderSettings() {
             ))}
           </div>
         ) : healthQuery.isError ? (
-          <p className="flex items-center gap-2 text-sm text-red-500">
+          <p className="flex items-center gap-2 text-sm text-red-500/80">
             <AlertTriangle className="size-4" />
             Failed to load provider health
           </p>
@@ -71,21 +71,23 @@ export default function ProviderSettings() {
                 return (
                   <div
                     key={name}
-                    className="flex items-center justify-between rounded-md border p-3"
+                    className="rounded-md border p-4"
                   >
-                    <div className="flex items-center gap-3">
-                      {cfg.icon}
-                      <span className="text-sm font-medium">{name}</span>
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        {cfg.icon}
+                        <span className="text-sm font-medium">{name}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {info.latency_ms != null && (
+                          <span className="text-xs text-muted-foreground">{info.latency_ms.toFixed(0)}ms</span>
+                        )}
+                        <Badge className={cn('text-xs capitalize', cfg.badge)}>{info.status}</Badge>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      {info.error && (
-                        <span className="text-xs text-red-500" title={info.error}>
-                          {info.error}
-                        </span>
-                      )}
-                      <span className="text-xs text-muted-foreground">{info.latency_ms}ms</span>
-                      <Badge className={cn('text-xs capitalize', cfg.badge)}>{info.status}</Badge>
-                    </div>
+                    {info.error && (
+                      <p className="mt-2 text-xs text-red-500/80">{info.error}</p>
+                    )}
                   </div>
                 )
               })}

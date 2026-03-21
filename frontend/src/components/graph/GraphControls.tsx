@@ -1,6 +1,7 @@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
-import { ALL_ENTITY_TYPES } from '@/constants/entityTypes'
+import { ALL_ENTITY_TYPES, ENTITY_TYPE_COLORS } from '@/constants/entityTypes'
+import { formatSourceType } from '@/lib/utils'
 
 const ALL_TYPES = ALL_ENTITY_TYPES
 
@@ -27,16 +28,28 @@ export default function GraphControls({ selectedTypes, onChange, nodeCount, edge
       <div className="text-sm font-semibold">Filters</div>
 
       <div className="flex flex-col gap-2">
-        {ALL_TYPES.map((type) => (
-          <label key={type} className="flex cursor-pointer items-center gap-2 text-sm">
-            <Checkbox
-              checked={selectedSet.has(type)}
-              onCheckedChange={() => toggle(type)}
-              aria-label={type}
-            />
-            <span>{type}</span>
-          </label>
-        ))}
+        {ALL_TYPES.map((type) => {
+          const color = ENTITY_TYPE_COLORS[type] ?? '#94a3b8'
+          return (
+            <label key={type} className="flex cursor-pointer items-center gap-2 text-sm">
+              <Checkbox
+                checked={selectedSet.has(type)}
+                onCheckedChange={() => toggle(type)}
+                aria-label={formatSourceType(type)}
+              />
+              <span
+                className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                style={{
+                  backgroundColor: `${color}26`,
+                  color,
+                  border: `1px solid ${color}66`,
+                }}
+              >
+                {formatSourceType(type)}
+              </span>
+            </label>
+          )
+        })}
       </div>
 
       <div className="flex gap-2">

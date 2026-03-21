@@ -1,9 +1,61 @@
-import { cn } from '@/lib/utils'
+import { CalendarIcon } from 'lucide-react'
+import { cn, formatSourceType, sourceTypeColor } from '@/lib/utils'
+import { Calendar } from '@/components/ui/calendar'
+import { PopoverContent, PopoverRoot, PopoverTrigger } from '@/components/ui/popover'
 import type { SearchFilters } from '@/services/api'
 
-function toLocalDateValue(iso: string): string {
-  const d = new Date(iso)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+function formatDate(iso: string | undefined): string {
+  if (!iso) return ''
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
+function DatePickerButton({
+  label,
+  value,
+  onSelect,
+  disabledBefore,
+  disabledAfter,
+}: {
+  label: string
+  value: Date | undefined
+  onSelect: (date: Date | undefined) => void
+  disabledBefore?: Date
+  disabledAfter?: Date
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <PopoverRoot>
+        <PopoverTrigger
+          className={cn(
+            'flex w-full items-center gap-2 rounded-md border bg-background px-3 py-1.5',
+            'text-xs text-left hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            !value && 'text-muted-foreground',
+          )}
+          aria-label={label}
+        >
+          <CalendarIcon className="size-3.5 shrink-0 text-muted-foreground" />
+          <span>{value ? formatDate(value.toISOString()) : 'Pick a date'}</span>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto p-0" align="start">
+          <Calendar
+            mode="single"
+            selected={value}
+            onSelect={onSelect}
+            defaultMonth={value}
+            disabled={[
+              ...(disabledBefore ? [{ before: disabledBefore }] : []),
+              ...(disabledAfter ? [{ after: disabledAfter }] : []),
+            ]}
+          />
+        </PopoverContent>
+      </PopoverRoot>
+    </div>
+  )
 }
 
 interface SearchFiltersProps {
@@ -28,19 +80,8 @@ export default function SearchFiltersPanel({
     onChange({ ...filters, source_types: next.length > 0 ? next : undefined })
   }
 
-  const handleDateFrom = (value: string) => {
-    onChange({
-      ...filters,
-      date_from: value ? new Date(value + 'T00:00:00').toISOString() : undefined,
-    })
-  }
-
-  const handleDateTo = (value: string) => {
-    onChange({
-      ...filters,
-      date_to: value ? new Date(value + 'T00:00:00').toISOString() : undefined,
-    })
-  }
+  const dateFrom = filters.date_from ? new Date(filters.date_from) : undefined
+  const dateTo = filters.date_to ? new Date(filters.date_to) : undefined
 
   return (
     <div className={cn('flex flex-col gap-4 text-sm', className)}>
@@ -54,9 +95,18 @@ export default function SearchFiltersPanel({
                 checked={selectedTypes.includes(type)}
                 onChange={() => toggleSourceType(type)}
                 className="rounded"
-                aria-label={type}
+                aria-label={formatSourceType(type)}
               />
-              <span>{type}</span>
+              <span
+                className="rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                style={{
+                  backgroundColor: `${sourceTypeColor(type)}26`,
+                  color: sourceTypeColor(type),
+                  border: `1px solid ${sourceTypeColor(type)}66`,
+                }}
+              >
+                {formatSourceType(type)}
+              </span>
             </label>
           ))}
         </div>
@@ -65,26 +115,18 @@ export default function SearchFiltersPanel({
       <div>
         <p className="mb-2 font-medium">Date Range</p>
         <div className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">From</span>
-            <input
-              type="date"
-              aria-label="From"
-              value={filters.date_from ? toLocalDateValue(filters.date_from) : ''}
-              className="rounded-md border bg-background px-2 py-1 text-xs"
-              onChange={(e) => handleDateFrom(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">To</span>
-            <input
-              type="date"
-              aria-label="To"
-              value={filters.date_to ? toLocalDateValue(filters.date_to) : ''}
-              className="rounded-md border bg-background px-2 py-1 text-xs"
-              onChange={(e) => handleDateTo(e.target.value)}
-            />
-          </label>
+          <DatePickerButton
+            label="From"
+            value={dateFrom}
+            onSelect={(d) => onChange({ ...filters, date_from: d?.toISOString() })}
+            disabledAfter={dateTo}
+          />
+          <DatePickerButton
+            label="To"
+            value={dateTo}
+            onSelect={(d) => onChange({ ...filters, date_to: d?.toISOString() })}
+            disabledBefore={dateFrom}
+          />
         </div>
       </div>
 

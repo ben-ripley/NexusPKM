@@ -40,12 +40,12 @@ export function useGraphData(selectedTypes: string[]) {
 
     // Only include links where both endpoints are in the filtered node set
     const links: GraphLink[] = allRelationships
-      .filter((r) => nodeIdSet.has(r.source_entity_id) && nodeIdSet.has(r.target_entity_id))
+      .filter((r) => nodeIdSet.has(r.from_id) && nodeIdSet.has(r.to_id))
       .map((r) => ({
-        id: r.id,
-        source: r.source_entity_id,
-        target: r.target_entity_id,
-        relationship_type: r.relationship_type,
+        id: `${r.rel_type}:${r.from_id}:${r.to_id}`,
+        source: r.from_id,
+        target: r.to_id,
+        relationship_type: r.rel_type,
       }))
 
     return { nodes, links }
