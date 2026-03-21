@@ -83,8 +83,16 @@ def _make_mock_table(arrow_result: pa.Table | None = None) -> MagicMock:
     # so the migration branch is skipped in tests that open an existing table.
     schema_result = MagicMock()
     schema_result.names = [
-        "chunk_id", "document_id", "text", "vector",
-        "source_type", "source_id", "title", "created_at", "updated_at", "url",
+        "chunk_id",
+        "document_id",
+        "text",
+        "vector",
+        "source_type",
+        "source_id",
+        "title",
+        "created_at",
+        "updated_at",
+        "url",
     ]
     mock_table.schema = AsyncMock(return_value=schema_result)
     # Expose search_chain so tests can assert on it via store._table._search_chain

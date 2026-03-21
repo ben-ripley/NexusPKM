@@ -144,9 +144,7 @@ class VectorStore:
             # lancedb ≥0.14 returns a ListTablesResponse object; extract the
             # plain list before using `in` to avoid false negatives.
             existing: list[str] = (
-                list_response.tables
-                if hasattr(list_response, "tables")
-                else list(list_response)
+                list_response.tables if hasattr(list_response, "tables") else list(list_response)
             )
             if TABLE_NAME in existing:
                 self._table = await self._conn.open_table(TABLE_NAME)

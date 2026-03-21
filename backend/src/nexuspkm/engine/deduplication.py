@@ -190,9 +190,7 @@ class EntityDeduplicator:
         Only runs the SET query for node types whose schema includes an
         ``aliases STRING[]`` column (Person, Project). Other types silently skip.
         """
-        _tables_with_aliases = frozenset(
-            _ENTITY_TYPE_TABLE[t] for t in _ENTITY_TYPES_WITH_ALIASES
-        )
+        _tables_with_aliases = frozenset(_ENTITY_TYPE_TABLE[t] for t in _ENTITY_TYPES_WITH_ALIASES)
         if table not in _tables_with_aliases:
             return
         existing_aliases: list[str] = list(row.get("n.aliases") or [])

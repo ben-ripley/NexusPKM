@@ -286,7 +286,9 @@ class TeamsTranscriptConnector(BaseConnector):
     # Private: document transformation
     # ------------------------------------------------------------------
 
-    def _to_document(self, parsed: ParsedTranscript, *, join_web_url: str | None = None) -> Document:
+    def _to_document(
+        self, parsed: ParsedTranscript, *, join_web_url: str | None = None
+    ) -> Document:
         """Transform a ParsedTranscript into the canonical Document schema (FR-5)."""
         now = datetime.datetime.now(tz=datetime.UTC)
         content = parsed.full_text or f"Meeting: {parsed.title}"
@@ -325,7 +327,7 @@ class _MeetingMeta(TypedDict):
 
 
 def _parse_meeting_meta(meeting: dict[str, object]) -> _MeetingMeta:
-    """Extract title, start_dt, duration_minutes, participants and join URL from a Graph meeting dict."""
+    """Extract title, start_dt, duration_minutes, participants and join URL from a Graph meeting."""
     title = str(meeting.get("subject") or "Untitled Meeting")
 
     start_str = str(meeting.get("startDateTime") or "")

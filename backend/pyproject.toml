@@ -24,6 +24,7 @@ dependencies = [
     "msal>=1.31,<2",
     "cryptography>=43.0",
     "watchfiles>=0.21",
+    "html2text>=2024.2.26",
 ]
 
 [project.optional-dependencies]
@@ -85,4 +86,8 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "watchfiles.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "html2text"
 ignore_missing_imports = true
