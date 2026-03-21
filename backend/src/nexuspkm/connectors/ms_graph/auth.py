@@ -114,6 +114,8 @@ class MicrosoftGraphAuth:
     SCOPES: ClassVar[tuple[str, ...]] = (
         "OnlineMeetingTranscript.Read",
         "OnlineMeeting.Read",
+        "Mail.Read",
+        "Calendars.Read",
         "User.Read",
         "offline_access",
     )

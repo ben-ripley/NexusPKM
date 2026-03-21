@@ -145,6 +145,11 @@ class OutlookConnectorConfig(BaseModel):
     enabled: bool = False
     sync_interval_minutes: int = Field(default=15, gt=0)
     folders: list[str] = Field(default_factory=lambda: ["Inbox", "Sent Items"])
+    exclude_folders: list[str] = Field(default_factory=lambda: ["Junk Email", "Deleted Items"])
+    sender_domains: list[str] = Field(default_factory=list)  # empty = allow all
+    date_from: str | None = None  # ISO date string "YYYY-MM-DD"
+    max_emails_per_sync: int = Field(default=500, gt=0)
+    calendar_window_days: int = Field(default=30, gt=0)  # past + future days
 
 
 class ObsidianConnectorConfig(BaseModel):
