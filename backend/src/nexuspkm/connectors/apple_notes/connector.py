@@ -238,9 +238,7 @@ class AppleNotesConnector(BaseConnector):
     # Private: fetch pipeline
     # ------------------------------------------------------------------
 
-    async def _fetch_gen(
-        self, since: datetime.datetime | None
-    ) -> AsyncGenerator[Document, None]:
+    async def _fetch_gen(self, since: datetime.datetime | None) -> AsyncGenerator[Document, None]:
         _ = since
         self._last_sync_errors = []
 
@@ -309,9 +307,7 @@ class AppleNotesConnector(BaseConnector):
             if not isinstance(data, list):
                 return []
             return [
-                {str(k): str(v) for k, v in item.items()}
-                for item in data
-                if isinstance(item, dict)
+                {str(k): str(v) for k, v in item.items()} for item in data if isinstance(item, dict)
             ]
         except (json.JSONDecodeError, ValueError) as exc:
             log.warning("apple_notes_connector.parse_output_failed", error=str(exc))
@@ -436,9 +432,7 @@ class AppleNotesConnector(BaseConnector):
                     if isinstance(v, dict) and "doc_id" in v and "modified" in v
                 }
             except (json.JSONDecodeError, ValueError, TypeError):
-                log.warning(
-                    "apple_notes_connector.state_load_failed", path=str(state_file)
-                )
+                log.warning("apple_notes_connector.state_load_failed", path=str(state_file))
                 return {}
 
         return await asyncio.to_thread(_read)

@@ -45,12 +45,7 @@ def test_mixed_checklist_items() -> None:
 
 
 def test_table_conversion() -> None:
-    html = (
-        "<table>"
-        "<tr><th>Name</th><th>Value</th></tr>"
-        "<tr><td>Alice</td><td>42</td></tr>"
-        "</table>"
-    )
+    html = "<table><tr><th>Name</th><th>Value</th></tr><tr><td>Alice</td><td>42</td></tr></table>"
     result = convert_html_to_markdown(html)
     assert "Name" in result
     assert "Value" in result
@@ -85,10 +80,7 @@ def test_empty_html_returns_empty_string() -> None:
 
 def test_html_with_divs_and_spans() -> None:
     html = (
-        "<html><body>"
-        "<div><span>Line one</span></div>"
-        "<div><span>Line two</span></div>"
-        "</body></html>"
+        "<html><body><div><span>Line one</span></div><div><span>Line two</span></div></body></html>"
     )
     result = convert_html_to_markdown(html)
     assert "Line one" in result

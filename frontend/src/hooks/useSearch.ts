@@ -51,6 +51,7 @@ export function useSearch() {
   useEffect(() => {
     if (!filtersInitialized && availableSourceTypes.length > 0) {
       const initialFilters: SearchFilters = { source_types: availableSourceTypes }
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFilters(initialFilters)
       setFiltersInitialized(true)
       if (urlQuery) {
