@@ -7,15 +7,20 @@ NXP-68
 
 from __future__ import annotations
 
+import datetime
 import json
+import sqlite3
 import sys
+import uuid
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from nexuspkm.config.models import AppleNotesConnectorConfig
-from nexuspkm.connectors.apple_notes.connector import AppleNotesConnector
+from nexuspkm.connectors.apple_notes.connector import (
+    AppleNotesConnector,
+)
 from nexuspkm.models.document import SourceType
 
 _PATCH_SUBPROCESS = "nexuspkm.connectors.apple_notes.connector.subprocess.run"
@@ -167,8 +172,6 @@ async def test_deletion_detection_across_two_syncs(tmp_path: Path) -> None:
 
 async def test_deletion_ids_are_stable_doc_ids(tmp_path: Path) -> None:
     """Deleted doc IDs match the IDs produced during initial sync."""
-    import uuid as _uuid
-
     notes_all = [_make_note("n1"), _make_note("n2")]
     connector = _make_connector(tmp_path)
 
@@ -176,7 +179,7 @@ async def test_deletion_ids_are_stable_doc_ids(tmp_path: Path) -> None:
         initial_docs = [doc async for doc in connector.fetch()]
 
     n2_id = next(d.id for d in initial_docs if d.metadata.source_id == "n2")
-    expected_id = str(_uuid.uuid5(_uuid.NAMESPACE_OID, "apple_note:n2"))
+    expected_id = str(uuid.uuid5(uuid.NAMESPACE_OID, "apple_note:n2"))
     assert n2_id == expected_id
 
     with patch(_PATCH_SUBPROCESS, return_value=_mock_subprocess([_make_note("n1")])):
@@ -216,9 +219,7 @@ async def test_health_check_degraded_after_error(tmp_path: Path) -> None:
     with patch(_PATCH_SUBPROCESS, return_value=error_result):
         _ = [doc async for doc in connector.fetch()]
 
-    with patch("sys.platform", "darwin"):
-        status = await connector.health_check()
-
+    status = await connector.health_check()
     assert status.status == "degraded"
 
 
@@ -254,3 +255,98 @@ async def test_html_body_converted_to_markdown(tmp_path: Path) -> None:
         docs = [doc async for doc in connector.fetch()]
     assert "Meeting" in docs[0].content
     assert "Action items" in docs[0].content
+
+
+# ---------------------------------------------------------------------------
+# SQLite extraction path
+# ---------------------------------------------------------------------------
+
+# Core Data epoch (seconds since 2001-01-01 UTC) — mirrors the connector constant.
+_EPOCH = datetime.datetime(2001, 1, 1, tzinfo=datetime.UTC)
+
+
+def _create_test_notestore(db_path: Path) -> None:
+    """Create a minimal NoteStore.sqlite schema with one note and one folder."""
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute("""
+            CREATE TABLE ZICCLOUDSYNCINGOBJECT (
+                Z_PK INTEGER PRIMARY KEY,
+                ZNOTE TEXT,
+                ZTITLE TEXT,
+                ZBODY INTEGER,
+                ZFOLDER INTEGER,
+                ZCREATIONDATE REAL,
+                ZMODIFICATIONDATE REAL,
+                ZMARKEDFORDELETION INTEGER DEFAULT 0
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE ZNOTEBODY (
+                Z_PK INTEGER PRIMARY KEY,
+                ZDATA BLOB
+            )
+        """)
+        # Folder row (ZFOLDER = 1)
+        conn.execute("INSERT INTO ZICCLOUDSYNCINGOBJECT (Z_PK, ZTITLE) VALUES (1, 'Work')")
+        # Note body row
+        conn.execute("INSERT INTO ZNOTEBODY (Z_PK, ZDATA) VALUES (10, NULL)")
+        # Note row — timestamps are seconds offset from _CORE_DATA_EPOCH
+        created_s = (datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC) - _EPOCH).total_seconds()
+        modified_s = (datetime.datetime(2026, 1, 15, tzinfo=datetime.UTC) - _EPOCH).total_seconds()
+        conn.execute(
+            """INSERT INTO ZICCLOUDSYNCINGOBJECT
+               (Z_PK, ZNOTE, ZTITLE, ZBODY, ZFOLDER, ZCREATIONDATE, ZMODIFICATIONDATE,
+                ZMARKEDFORDELETION)
+               VALUES (2, 'note-sqlite-1', 'SQLite Note', 10, 1, ?, ?, 0)""",
+            (created_s, modified_s),
+        )
+        conn.commit()
+
+
+async def test_fetch_via_sqlite_returns_notes(tmp_path: Path) -> None:
+    """_fetch_via_sqlite reads notes from a NoteStore.sqlite at the configured path."""
+    db_path = tmp_path / "NoteStore.sqlite"
+    _create_test_notestore(db_path)
+    connector = _make_connector(tmp_path, extraction_method="sqlite", notes_db_path=db_path)
+    docs = [doc async for doc in connector.fetch()]
+
+    assert len(docs) == 1
+    assert docs[0].metadata.title == "SQLite Note"
+    assert docs[0].metadata.custom["folder"] == "Work"
+    assert docs[0].metadata.source_type == SourceType.APPLE_NOTE
+
+
+async def test_fetch_via_sqlite_stable_doc_id(tmp_path: Path) -> None:
+    """Document ID is deterministic (uuid5) for the SQLite path."""
+    db_path = tmp_path / "NoteStore.sqlite"
+    _create_test_notestore(db_path)
+    connector = _make_connector(tmp_path, extraction_method="sqlite", notes_db_path=db_path)
+    docs = [doc async for doc in connector.fetch()]
+
+    expected_id = str(uuid.uuid5(uuid.NAMESPACE_OID, "apple_note:note-sqlite-1"))
+    assert docs[0].id == expected_id
+
+
+async def test_fetch_via_sqlite_skips_deleted_notes(tmp_path: Path) -> None:
+    """Notes with ZMARKEDFORDELETION=1 are excluded from the result."""
+    db_path = tmp_path / "NoteStore.sqlite"
+    _create_test_notestore(db_path)
+
+    # Mark the note as deleted
+    with sqlite3.connect(str(db_path)) as conn:
+        conn.execute("UPDATE ZICCLOUDSYNCINGOBJECT SET ZMARKEDFORDELETION=1 WHERE Z_PK=2")
+        conn.commit()
+
+    connector = _make_connector(tmp_path, extraction_method="sqlite", notes_db_path=db_path)
+    docs = [doc async for doc in connector.fetch()]
+    assert docs == []
+
+
+async def test_fetch_via_sqlite_missing_db_raises(tmp_path: Path) -> None:
+    """fetch() records an error when notes_db_path does not exist."""
+    missing = tmp_path / "nonexistent.sqlite"
+    connector = _make_connector(tmp_path, extraction_method="sqlite", notes_db_path=missing)
+    docs = [doc async for doc in connector.fetch()]
+
+    assert docs == []
+    assert any("not found" in e.lower() or "nonexistent" in e for e in connector._last_sync_errors)

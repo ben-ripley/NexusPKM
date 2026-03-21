@@ -334,7 +334,9 @@ class AppleNotesConnector(BaseConnector):
         db_path = self._notes_db_path
 
         def _query() -> list[dict[str, str]]:
-            with sqlite3.connect(str(db_path)) as conn:
+            if not db_path.exists():
+                raise FileNotFoundError(f"NoteStore.sqlite not found at {db_path}")
+            with sqlite3.connect(f"file:{db_path}?mode=ro", uri=True) as conn:
                 cursor = conn.execute(_SQLITE_QUERY)
                 notes: list[dict[str, str]] = []
                 for row in cursor.fetchall():
