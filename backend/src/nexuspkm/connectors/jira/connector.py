@@ -89,12 +89,7 @@ class JiraConnector(BaseConnector):
         return self._config.sync_interval_minutes
 
     def update_sync_interval(self, minutes: int) -> None:
-        self._config = JiraConnectorConfig(
-            enabled=self._config.enabled,
-            base_url=self._config.base_url,
-            sync_interval_minutes=minutes,
-            jql_filter=self._config.jql_filter,
-        )
+        self._config = self._config.model_copy(update={"sync_interval_minutes": minutes})
 
     # ------------------------------------------------------------------
     # BaseConnector interface
