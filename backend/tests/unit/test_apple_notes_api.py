@@ -185,3 +185,24 @@ def test_put_config_404_when_not_configured(scheduler: MagicMock) -> None:
         json={"sync_interval_minutes": 10},
     )
     assert resp.status_code == 404
+
+
+def test_put_config_rolls_back_interval_on_scheduler_error(
+    connector: AppleNotesConnector,
+    registry: ConnectorRegistry,
+    scheduler: MagicMock,
+) -> None:
+    """If reschedule_connector raises, the connector's interval is reverted."""
+    scheduler.reschedule_connector.side_effect = RuntimeError("scheduler unavailable")
+    original_interval = connector.sync_interval_minutes
+
+    app = _make_app(registry, scheduler)
+    client = TestClient(app)
+    resp = client.put(
+        "/api/connectors/apple-notes/config",
+        json={"sync_interval_minutes": 60},
+    )
+
+    assert resp.status_code == 500
+    # Interval must be reverted to the original value
+    assert connector.sync_interval_minutes == original_interval

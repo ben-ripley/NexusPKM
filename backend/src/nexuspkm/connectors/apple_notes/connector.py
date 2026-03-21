@@ -205,11 +205,10 @@ class AppleNotesConnector(BaseConnector):
                 status="unavailable",
                 last_error="Apple Notes connector requires macOS",
             )
-        note_state = await self._load_note_state()
         return ConnectorStatus(
             name=self.name,
             status="healthy" if not self._last_sync_errors else "degraded",
-            documents_synced=len(note_state),
+            documents_synced=self._total_docs_synced,
             sync_errors=list(self._last_sync_errors),
         )
 
