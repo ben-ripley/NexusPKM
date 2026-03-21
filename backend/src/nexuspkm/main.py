@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from nexuspkm.api.apple_notes import router as apple_notes_router
 from nexuspkm.api.chat import get_chat_service
 from nexuspkm.api.chat import router as chat_router
 from nexuspkm.api.connectors import generic_router as generic_connectors_router
@@ -138,6 +139,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         intervals["teams"] = config.connectors.teams.sync_interval_minutes * 60
         log.info("teams_connector_registered")
 
+    if config.connectors.apple_notes.enabled:
+        from nexuspkm.connectors.apple_notes.connector import AppleNotesConnector
+
+        _apple_notes_connector = AppleNotesConnector(
+            state_dir=data_dir / "connectors",
+            config=config.connectors.apple_notes,
+        )
+        _connector_registry.register(_apple_notes_connector)
+        intervals["apple_notes"] = config.connectors.apple_notes.sync_interval_minutes * 60
+        log.info("apple_notes_connector_registered")
+
     _obsidian_connector = None
     if config.connectors.obsidian.enabled and config.connectors.obsidian.vault_path:
         from nexuspkm.connectors.obsidian.connector import ObsidianNotesConnector
@@ -166,6 +178,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_connector_registry] = lambda: _connector_registry
     app.dependency_overrides[get_sync_scheduler] = lambda: _sync_scheduler
 
+    from nexuspkm.api.apple_notes import (
+        get_connector_registry as an_get_registry,
+    )
+    from nexuspkm.api.apple_notes import (
+        get_sync_scheduler as an_get_scheduler,
+    )
     from nexuspkm.api.obsidian import (
         get_connector_registry as obs_get_registry,
     )
@@ -173,6 +191,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         get_sync_scheduler as obs_get_scheduler,
     )
 
+    app.dependency_overrides[an_get_registry] = lambda: _connector_registry
+    app.dependency_overrides[an_get_scheduler] = lambda: _sync_scheduler
     app.dependency_overrides[obs_get_registry] = lambda: _connector_registry
     app.dependency_overrides[obs_get_scheduler] = lambda: _sync_scheduler
     _sync_scheduler.start(intervals)
@@ -217,6 +237,7 @@ app = FastAPI(title="NexusPKM", lifespan=lifespan)
 app.include_router(providers_router)
 app.include_router(engine_router)
 app.include_router(connectors_router)
+app.include_router(apple_notes_router)
 app.include_router(obsidian_router)
 app.include_router(generic_connectors_router)
 app.include_router(entities_router)

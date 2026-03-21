@@ -189,6 +189,7 @@ class JiraConnectorConfig(BaseModel):
 class AppleNotesConnectorConfig(BaseModel):
     enabled: bool = False
     sync_interval_minutes: int = Field(default=15, gt=0)
+    extraction_method: Literal["applescript", "sqlite"] = "applescript"
 
 
 class ConnectorsConfig(BaseModel):
