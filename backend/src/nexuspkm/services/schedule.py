@@ -14,6 +14,7 @@ import asyncio
 import math
 from collections import defaultdict
 from datetime import UTC, date, datetime, timedelta
+from typing import Literal
 
 import structlog
 
@@ -58,7 +59,7 @@ class ScheduleService:
 
     async def get_daily_digest(self, for_date: date | None = None) -> DailyDigest:
         loop = asyncio.get_running_loop()
-        target = for_date or date.today()
+        target = for_date or datetime.now(tz=UTC).date()
         try:
             return await loop.run_in_executor(None, self._build_digest_sync, target)
         except Exception:
@@ -130,7 +131,7 @@ class ScheduleService:
         raw = (urgency * 0.4) + (importance * 0.35) + (explicit * 0.25)
         return min(100.0, raw * 100.0)
 
-    def _workload_status(self, score: float) -> str:
+    def _workload_status(self, score: float) -> Literal["light", "balanced", "heavy", "overloaded"]:
         """Map a 0-100 workload score to a status label."""
         if score < 30.0:
             return "light"
@@ -265,13 +266,16 @@ class ScheduleService:
         return TeamWorkload(members=members, overlap_alerts=overlaps)
 
     def _detect_overlaps_sync(self) -> list[OverlapAlert]:
-        """Find topics where multiple people have open action items."""
+        """Find topics where multiple people have open action items.
+
+        Uses DISTINCT to collapse the N×M cross between action items and
+        documents so only unique (topic, person) pairs are returned.
+        """
         rows = self._graph.execute(
             "MATCH (a:ActionItem)-[:ASSIGNED_TO]->(p:Person), "
-            "      (d:Document)-[:TAGGED_WITH]->(t:Topic), "
-            "      (p)-[:MENTIONED_IN]->(d) "
+            "      (p)-[:MENTIONED_IN]->(d:Document)-[:TAGGED_WITH]->(t:Topic) "
             "WHERE a.status = 'open' "
-            "RETURN t.id AS topic_id, t.name AS topic_name, p.name AS person_name"
+            "RETURN DISTINCT t.id AS topic_id, t.name AS topic_name, p.name AS person_name"
         )
 
         # Group persons by topic

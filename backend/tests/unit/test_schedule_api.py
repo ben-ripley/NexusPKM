@@ -82,14 +82,10 @@ def test_digest_returns_200(client: TestClient) -> None:
     assert "generated_at" in data
 
 
-def test_digest_with_date_param(mock_service: MagicMock) -> None:
-    app.dependency_overrides[get_schedule_service] = lambda: mock_service
-    try:
-        response = TestClient(app).get("/api/schedule/digest?for_date=2026-03-21")
-        assert response.status_code == 200
-        mock_service.get_daily_digest.assert_called_once_with(for_date=date(2026, 3, 21))
-    finally:
-        app.dependency_overrides.pop(get_schedule_service, None)
+def test_digest_with_date_param(client: TestClient, mock_service: MagicMock) -> None:
+    response = client.get("/api/schedule/digest?for_date=2026-03-21")
+    assert response.status_code == 200
+    mock_service.get_daily_digest.assert_called_once_with(for_date=date(2026, 3, 21))
 
 
 def test_digest_invalid_date_returns_422(client: TestClient) -> None:
@@ -109,7 +105,7 @@ def test_action_items_returns_200(client: TestClient) -> None:
     assert isinstance(data, list)
 
 
-def test_action_items_returns_sorted_list(mock_service: MagicMock) -> None:
+def test_action_items_returns_sorted_list(client: TestClient, mock_service: MagicMock) -> None:
     item = PrioritizedItem(
         entity_id="ai-1",
         entity_type="ActionItem",
@@ -120,16 +116,12 @@ def test_action_items_returns_sorted_list(mock_service: MagicMock) -> None:
         factors=["overdue"],
     )
     mock_service.get_prioritized_action_items = AsyncMock(return_value=[item])
-    app.dependency_overrides[get_schedule_service] = lambda: mock_service
-    try:
-        response = TestClient(app).get("/api/schedule/action-items")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["entity_id"] == "ai-1"
-        assert data[0]["priority_score"] == 75.0
-    finally:
-        app.dependency_overrides.pop(get_schedule_service, None)
+    response = client.get("/api/schedule/action-items")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["entity_id"] == "ai-1"
+    assert data[0]["priority_score"] == 75.0
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +137,7 @@ def test_team_workload_returns_200(client: TestClient) -> None:
     assert "overlap_alerts" in data
 
 
-def test_team_workload_with_members(mock_service: MagicMock) -> None:
+def test_team_workload_with_members(client: TestClient, mock_service: MagicMock) -> None:
     member = MemberWorkload(
         person=PersonSummary(id="p-1", name="Alice"),
         open_action_items=3,
@@ -158,15 +150,11 @@ def test_team_workload_with_members(mock_service: MagicMock) -> None:
     mock_service.get_team_workload = AsyncMock(
         return_value=TeamWorkload(members=[member], overlap_alerts=[])
     )
-    app.dependency_overrides[get_schedule_service] = lambda: mock_service
-    try:
-        response = TestClient(app).get("/api/schedule/team-workload")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data["members"]) == 1
-        assert data["members"][0]["person"]["name"] == "Alice"
-    finally:
-        app.dependency_overrides.pop(get_schedule_service, None)
+    response = client.get("/api/schedule/team-workload")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["members"]) == 1
+    assert data["members"][0]["person"]["name"] == "Alice"
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +169,7 @@ def test_overlaps_returns_200(client: TestClient) -> None:
     assert isinstance(data, list)
 
 
-def test_overlaps_with_alerts(mock_service: MagicMock) -> None:
+def test_overlaps_with_alerts(client: TestClient, mock_service: MagicMock) -> None:
     alert = OverlapAlert(
         topic="AI Migration",
         people_involved=["Alice", "Bob"],
@@ -189,16 +177,12 @@ def test_overlaps_with_alerts(mock_service: MagicMock) -> None:
         description="Both Alice and Bob have open action items on AI Migration",
     )
     mock_service.get_overlaps = AsyncMock(return_value=[alert])
-    app.dependency_overrides[get_schedule_service] = lambda: mock_service
-    try:
-        response = TestClient(app).get("/api/schedule/overlaps")
-        assert response.status_code == 200
-        data = response.json()
-        assert len(data) == 1
-        assert data[0]["topic"] == "AI Migration"
-        assert "Alice" in data[0]["people_involved"]
-    finally:
-        app.dependency_overrides.pop(get_schedule_service, None)
+    response = client.get("/api/schedule/overlaps")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["topic"] == "AI Migration"
+    assert "Alice" in data[0]["people_involved"]
 
 
 # ---------------------------------------------------------------------------

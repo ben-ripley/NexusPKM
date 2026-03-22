@@ -7,6 +7,7 @@ NXP-86
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -77,7 +78,7 @@ class MemberWorkload(BaseModel):
     total_story_points: int = 0
     meetings_this_week: int = 0
     workload_score: float = Field(ge=0.0, le=100.0)
-    status: str
+    status: Literal["light", "balanced", "heavy", "overloaded"]
     top_items: list[PrioritizedItem] = Field(default_factory=list)
 
 

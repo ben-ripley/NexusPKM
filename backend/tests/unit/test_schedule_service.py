@@ -1,6 +1,7 @@
 """Unit tests for schedule service business logic.
 
-Tests priority scoring, workload calculation, and overlap detection.
+Tests priority scoring, workload calculation, overlap detection,
+digest assembly, and team workload calculation.
 Spec: F-012
 NXP-86
 """
@@ -8,7 +9,7 @@ NXP-86
 from __future__ import annotations
 
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock
 
 import pytest
@@ -224,3 +225,178 @@ def test_build_prioritized_items_sorted_descending(
     ]
     items = service._build_prioritized_items_sync()
     assert items[0].priority_score >= items[1].priority_score
+
+
+# ---------------------------------------------------------------------------
+# _get_meeting_context_sync
+# ---------------------------------------------------------------------------
+
+
+def test_get_meeting_context_returns_context_items(
+    service: ScheduleService, mock_graph_store: MagicMock
+) -> None:
+    mock_graph_store.execute.return_value = [
+        {"doc_id": "d-1", "title": "Project Notes", "source_type": "obsidian"},
+    ]
+    context = service._get_meeting_context_sync("m-1")
+    assert len(context) == 1
+    assert context[0].source_id == "d-1"
+    assert context[0].title == "Project Notes"
+    assert context[0].source_type == "obsidian"
+
+
+def test_get_meeting_context_empty(service: ScheduleService, mock_graph_store: MagicMock) -> None:
+    mock_graph_store.execute.return_value = []
+    context = service._get_meeting_context_sync("m-no-attendees")
+    assert context == []
+
+
+# ---------------------------------------------------------------------------
+# _build_digest_sync
+# ---------------------------------------------------------------------------
+
+
+def test_build_digest_no_meetings(service: ScheduleService, mock_graph_store: MagicMock) -> None:
+    """Digest with no meetings or items has empty lists."""
+    # call order: meetings query → action items query
+    mock_graph_store.execute.side_effect = [
+        [],  # meetings for the day
+        [],  # action items (_build_prioritized_items_sync)
+    ]
+    target = date(2026, 3, 21)
+    digest = service._build_digest_sync(target)
+    assert digest.date == target
+    assert digest.upcoming_meetings == []
+    assert digest.action_items == []
+    assert digest.overdue_items == []
+    assert isinstance(digest.generated_at, datetime)
+
+
+def test_build_digest_includes_meeting(
+    service: ScheduleService, mock_graph_store: MagicMock
+) -> None:
+    """Meetings on the target date are included in upcoming_meetings."""
+    meeting_dt = datetime(2026, 3, 21, 10, 0, tzinfo=UTC)
+    # call order: meetings query → action items query → context query for m-1
+    mock_graph_store.execute.side_effect = [
+        [{"id": "m-1", "title": "Standup", "date": meeting_dt, "duration_minutes": 30}],
+        [],  # action items
+        [],  # context for m-1
+    ]
+    digest = service._build_digest_sync(date(2026, 3, 21))
+    assert len(digest.upcoming_meetings) == 1
+    assert digest.upcoming_meetings[0].meeting.id == "m-1"
+    assert digest.upcoming_meetings[0].meeting.title == "Standup"
+
+
+def test_build_digest_separates_overdue_from_open(
+    service: ScheduleService, mock_graph_store: MagicMock
+) -> None:
+    """Overdue items (urgency=1.0) are separated from open items."""
+    past = datetime.now(tz=UTC) - timedelta(days=2)
+    future = datetime.now(tz=UTC) + timedelta(days=7)
+    mock_graph_store.execute.side_effect = [
+        [],  # no meetings
+        [
+            {
+                "id": "ai-overdue",
+                "description": "Late task",
+                "status": "open",
+                "due_date": past,
+                "rel_count": 0,
+            },
+            {
+                "id": "ai-open",
+                "description": "Future task",
+                "status": "open",
+                "due_date": future,
+                "rel_count": 0,
+            },
+        ],
+    ]
+    digest = service._build_digest_sync(date.today())
+    assert len(digest.overdue_items) == 1
+    assert digest.overdue_items[0].entity_id == "ai-overdue"
+    assert len(digest.action_items) == 1
+    assert digest.action_items[0].entity_id == "ai-open"
+
+
+# ---------------------------------------------------------------------------
+# _build_team_workload_sync
+# ---------------------------------------------------------------------------
+
+
+def test_build_team_workload_returns_members(
+    service: ScheduleService, mock_graph_store: MagicMock
+) -> None:
+    """All persons from the graph appear as members."""
+    # call order: persons → assigned rows → meetings → action items → overlaps
+    mock_graph_store.execute.side_effect = [
+        [{"id": "p-1", "name": "Alice", "email": "alice@example.com"}],
+        [],  # no assigned action items
+        [],  # no meetings this week
+        [],  # action items (prioritized)
+        [],  # overlaps
+    ]
+    workload = service._build_team_workload_sync()
+    assert len(workload.members) == 1
+    assert workload.members[0].person.name == "Alice"
+    assert workload.members[0].open_action_items == 0
+    assert workload.members[0].meetings_this_week == 0
+    assert workload.members[0].workload_score == 0.0
+    assert workload.members[0].status == "light"
+
+
+def test_build_team_workload_score_calculation(
+    service: ScheduleService, mock_graph_store: MagicMock
+) -> None:
+    """Workload score = open_items*10 + meetings*5."""
+    mock_graph_store.execute.side_effect = [
+        [{"id": "p-1", "name": "Bob", "email": ""}],
+        # 2 action items assigned to p-1
+        [{"action_id": "ai-1", "person_id": "p-1"}, {"action_id": "ai-2", "person_id": "p-1"}],
+        # 3 meetings this week
+        [{"person_id": "p-1", "meeting_count": 3}],
+        [],  # action items (prioritized items list empty)
+        [],  # overlaps
+    ]
+    workload = service._build_team_workload_sync()
+    member = workload.members[0]
+    assert member.open_action_items == 2
+    assert member.meetings_this_week == 3
+    # 2*10 + 3*5 = 35
+    assert member.workload_score == 35.0
+    assert member.status == "balanced"
+
+
+def test_build_team_workload_overloaded_threshold(
+    service: ScheduleService, mock_graph_store: MagicMock
+) -> None:
+    """10 open items alone → workload_score=100, status=overloaded."""
+    mock_graph_store.execute.side_effect = [
+        [{"id": "p-1", "name": "Charlie", "email": ""}],
+        [{"action_id": f"ai-{i}", "person_id": "p-1"} for i in range(10)],
+        [],  # no meetings
+        [],  # prioritized items
+        [],  # overlaps
+    ]
+    workload = service._build_team_workload_sync()
+    member = workload.members[0]
+    assert member.workload_score == 100.0
+    assert member.status == "overloaded"
+
+
+def test_build_team_workload_empty_graph(
+    service: ScheduleService, mock_graph_store: MagicMock
+) -> None:
+    """Empty graph → empty members list."""
+    mock_graph_store.execute.side_effect = [
+        [],  # no persons
+        [],  # assigned rows
+        [],  # meetings
+        [],  # action items
+        [],  # overlaps
+    ]
+    workload = service._build_team_workload_sync()
+    assert workload.members == []
+    assert workload.overlap_alerts == []
