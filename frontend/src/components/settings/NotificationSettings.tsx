@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
@@ -8,11 +8,9 @@ import type { NotificationPreferences } from '@/services/api'
 export default function NotificationSettings() {
   const { data: prefs, isLoading, error } = useNotificationPreferences()
   const { mutate: savePrefs, isPending } = useUpdatePreferences()
-  const [form, setForm] = useState<NotificationPreferences | null>(null)
-
-  useEffect(() => {
-    if (prefs && !form) setForm(prefs)
-  }, [prefs, form])
+  // Local edits override the server value; falls back to fetched prefs before first edit.
+  const [localForm, setLocalForm] = useState<NotificationPreferences | null>(null)
+  const form = localForm ?? prefs ?? null
 
   if (isLoading) {
     return <p className="text-sm text-muted-foreground">Loading notification settings…</p>
@@ -26,7 +24,7 @@ export default function NotificationSettings() {
 
   function toggle(field: keyof NotificationPreferences) {
     if (!form) return
-    setForm({ ...form, [field]: !form[field] })
+    setLocalForm({ ...form, [field]: !form[field] })
   }
 
   function handleSave() {
@@ -60,7 +58,7 @@ export default function NotificationSettings() {
               className="h-7 w-24 text-xs"
               value={form.meeting_prep_lead_time_minutes}
               onChange={(e) =>
-                setForm({ ...form, meeting_prep_lead_time_minutes: Number(e.target.value) })
+                setLocalForm({ ...form, meeting_prep_lead_time_minutes: Number(e.target.value) })
               }
             />
           </div>
@@ -97,7 +95,7 @@ export default function NotificationSettings() {
             className="h-8 text-xs"
             value={form.webhook_url ?? ''}
             onChange={(e) =>
-              setForm({ ...form, webhook_url: e.target.value || null })
+              setLocalForm({ ...form, webhook_url: e.target.value || null })
             }
           />
         </div>
