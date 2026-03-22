@@ -9,7 +9,15 @@ contextBridge.exposeInMainWorld('electron', {
    * Returns a cleanup function that removes the listener.
    */
   onBackendStatus(callback: (status: BackendStatus) => void): () => void {
-    const handler = (_e: IpcRendererEvent, status: BackendStatus) => callback(status)
+    const handler = (_e: IpcRendererEvent, raw: unknown) => {
+      // Narrow the IPC value at runtime so a future main-process change cannot
+      // silently propagate an unexpected string to the renderer.
+      const status: BackendStatus =
+        raw === 'starting' || raw === 'healthy' || raw === 'error' || raw === 'stopped'
+          ? raw
+          : 'starting'
+      callback(status)
+    }
     ipcRenderer.on('backend-status', handler)
     return () => {
       ipcRenderer.removeListener('backend-status', handler)

@@ -1,6 +1,22 @@
 import * as net from 'net'
 
 /**
+ * Handles an unexpected backend process exit.
+ * Calls `onUnexpectedStop` only when the app is not already shutting down
+ * intentionally — suppresses spurious 'stopped' broadcasts during clean quits.
+ */
+export function handleBackendExit(
+  code: number | null,
+  isShuttingDown: boolean,
+  onUnexpectedStop: () => void,
+): void {
+  if (!isShuttingDown) {
+    process.stderr.write(`[main] Backend exited unexpectedly with code ${String(code)}\n`)
+    onUnexpectedStop()
+  }
+}
+
+/**
  * Checks whether a TCP port is already in use on 127.0.0.1.
  * Returns true if the port is occupied, false if it is free.
  */

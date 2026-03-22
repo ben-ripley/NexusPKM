@@ -1,12 +1,16 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'path'
-import { isPortInUse, waitForHealth } from './backend-lifecycle'
+import { handleBackendExit, isPortInUse, waitForHealth } from './backend-lifecycle'
 import { broadcastBackendStatus, registerIpcHandlers } from './ipc-handlers'
 
 const BACKEND_PORT = parseInt(process.env['NEXUSPKM_BACKEND_PORT'] ?? '8000', 10)
 const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/health`
-const BACKEND_TIMEOUT_MS = 10_000
+// Default 10 s per F-014 NFR. Override for slow machines or CI via env var.
+const BACKEND_TIMEOUT_MS = parseInt(
+  process.env['NEXUSPKM_BACKEND_TIMEOUT_MS'] ?? '10000',
+  10,
+)
 const BACKEND_TIMEOUT_S = BACKEND_TIMEOUT_MS / 1000
 
 let backendProcess: ChildProcess | null = null
@@ -97,14 +101,13 @@ function spawnBackend(): ChildProcess {
   })
 
   // Notify renderer if the backend exits unexpectedly after startup.
-  // The isShuttingDown guard suppresses the broadcast for intentional quits
-  // (the once listener is still invoked, but the side-effects are skipped).
+  // handleBackendExit suppresses the broadcast for intentional shutdowns
+  // (isShuttingDown is set to true in the before-quit handler).
   proc.once('exit', (code) => {
-    if (!isShuttingDown) {
-      process.stderr.write(`[main] Backend exited unexpectedly with code ${String(code)}\n`)
+    handleBackendExit(code, isShuttingDown, () => {
       backendProcess = null
       broadcastBackendStatus('stopped')
-    }
+    })
   })
 
   return proc
@@ -159,10 +162,9 @@ app
 
     const splash = await createSplashWindow()
     backendProcess = spawnBackend()
-    // Status cached as 'starting'; broadcast goes to zero renderer windows
-    // at this point (only splash is open and has no IPC listener).
-    // Renderers that load later query current status via get-backend-status.
-    broadcastBackendStatus('starting')
+    // currentBackendStatus is already 'starting' by module initialisation;
+    // no broadcast is needed here because no renderer windows exist yet.
+    // Renderers query the initial state via get-backend-status on mount.
 
     try {
       await waitForHealth(HEALTH_URL, BACKEND_TIMEOUT_MS)

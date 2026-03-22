@@ -1,9 +1,29 @@
 // @vitest-environment node
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { waitForHealth } from '../../electron/backend-lifecycle'
+import { handleBackendExit, waitForHealth } from '../../electron/backend-lifecycle'
 
 const HEALTH_URL = 'http://127.0.0.1:8000/health'
+
+describe('handleBackendExit', () => {
+  it('calls onUnexpectedStop when the app is not shutting down', () => {
+    const onStop = vi.fn()
+    handleBackendExit(1, false, onStop)
+    expect(onStop).toHaveBeenCalledOnce()
+  })
+
+  it('does not call onUnexpectedStop during intentional shutdown', () => {
+    const onStop = vi.fn()
+    handleBackendExit(0, true, onStop)
+    expect(onStop).not.toHaveBeenCalled()
+  })
+
+  it('calls onUnexpectedStop when exit code is null (signal kill)', () => {
+    const onStop = vi.fn()
+    handleBackendExit(null, false, onStop)
+    expect(onStop).toHaveBeenCalledOnce()
+  })
+})
 
 describe('waitForHealth', () => {
   afterEach(() => {
