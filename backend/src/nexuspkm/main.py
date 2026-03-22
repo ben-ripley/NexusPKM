@@ -25,6 +25,8 @@ from nexuspkm.api.obsidian import router as obsidian_router
 from nexuspkm.api.outlook import router as outlook_router
 from nexuspkm.api.providers import get_registry
 from nexuspkm.api.providers import router as providers_router
+from nexuspkm.api.schedule import get_schedule_service
+from nexuspkm.api.schedule import router as schedule_router
 from nexuspkm.api.search import get_graph_store as search_get_graph_store
 from nexuspkm.api.search import get_obsidian_vault_path as search_get_obsidian_vault_path
 from nexuspkm.api.search import router as search_router
@@ -44,6 +46,7 @@ from nexuspkm.engine import (
 )
 from nexuspkm.providers.registry import ProviderRegistry
 from nexuspkm.services.chat import ChatService
+from nexuspkm.services.schedule import ScheduleService
 
 log = structlog.get_logger()
 
@@ -56,13 +59,14 @@ _sync_scheduler: SyncScheduler | None = None
 _extraction_queue: ExtractionQueue | None = None
 _contradiction_detector: ContradictionDetector | None = None
 _chat_service: ChatService | None = None
+_schedule_service: ScheduleService | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _registry, _knowledge_index, _vector_store, _graph_store
     global _connector_registry, _sync_scheduler, _extraction_queue, _contradiction_detector
-    global _chat_service
+    global _chat_service, _schedule_service
     config = await asyncio.to_thread(load_config)
     _registry = ProviderRegistry(config.providers)
     app.dependency_overrides[get_registry] = lambda: _registry
@@ -99,6 +103,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[get_extraction_queue] = lambda: _extraction_queue
     app.dependency_overrides[get_contradiction_detector] = lambda: _contradiction_detector
     app.dependency_overrides[search_get_graph_store] = lambda: _graph_store
+    _schedule_service = ScheduleService(_graph_store)
+    app.dependency_overrides[get_schedule_service] = lambda: _schedule_service
 
     llm_provider = _registry.get_llm()
     _extractor = EntityExtractor(llm_provider)
@@ -268,6 +274,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if _graph_store:
         await asyncio.to_thread(_graph_store.close)
     _chat_service = None
+    _schedule_service = None
     _registry = None
     _knowledge_index = None
     _vector_store = None
@@ -289,6 +296,7 @@ app.include_router(obsidian_router)
 app.include_router(generic_connectors_router)
 app.include_router(entities_router)
 app.include_router(chat_router)
+app.include_router(schedule_router)
 app.include_router(search_router)
 app.include_router(dashboard_router)
 
