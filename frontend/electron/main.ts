@@ -7,10 +7,9 @@ import { broadcastBackendStatus, registerIpcHandlers } from './ipc-handlers'
 const BACKEND_PORT = parseInt(process.env['NEXUSPKM_BACKEND_PORT'] ?? '8000', 10)
 const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/health`
 // Default 10 s per F-014 NFR. Override for slow machines or CI via env var.
-const BACKEND_TIMEOUT_MS = parseInt(
-  process.env['NEXUSPKM_BACKEND_TIMEOUT_MS'] ?? '10000',
-  10,
-)
+// Falls back to default if the env var is set to a non-numeric string.
+const _rawTimeout = parseInt(process.env['NEXUSPKM_BACKEND_TIMEOUT_MS'] ?? '10000', 10)
+const BACKEND_TIMEOUT_MS = Number.isFinite(_rawTimeout) && _rawTimeout > 0 ? _rawTimeout : 10_000
 const BACKEND_TIMEOUT_S = BACKEND_TIMEOUT_MS / 1000
 
 let backendProcess: ChildProcess | null = null

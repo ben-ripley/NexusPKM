@@ -45,7 +45,10 @@ export function registerIpcHandlers(): void {
   })
 }
 
-/** Reset module state. For use in tests only. */
+/**
+ * Reset module state to initial values.
+ * @internal For use in test files only — must not be imported in production code.
+ */
 export function _resetForTesting(): void {
   currentBackendStatus = 'starting'
 }

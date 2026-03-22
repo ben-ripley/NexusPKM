@@ -12,10 +12,12 @@ contextBridge.exposeInMainWorld('electron', {
     const handler = (_e: IpcRendererEvent, raw: unknown) => {
       // Narrow the IPC value at runtime so a future main-process change cannot
       // silently propagate an unexpected string to the renderer.
-      const status: BackendStatus =
+      const isKnown =
         raw === 'starting' || raw === 'healthy' || raw === 'error' || raw === 'stopped'
-          ? raw
-          : 'starting'
+      if (!isKnown) {
+        console.warn('[preload] unexpected backend-status value from main process:', raw)
+      }
+      const status: BackendStatus = isKnown ? raw : 'starting'
       callback(status)
     }
     ipcRenderer.on('backend-status', handler)
