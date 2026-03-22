@@ -21,7 +21,7 @@ from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 import structlog
@@ -379,11 +379,18 @@ class ProactiveService:
     # ------------------------------------------------------------------
 
     def _build_source_url(self, source_type: str, source_id: str) -> str | None:
-        import urllib.parse
-
         if source_type == "obsidian_note" and self.obsidian_vault_path is not None:
-            abs_path = str(self.obsidian_vault_path / source_id)
-            return "obsidian://open?path=" + urllib.parse.quote(abs_path, safe="")
+            resolved = (self.obsidian_vault_path / source_id).resolve()
+            vault_resolved = self.obsidian_vault_path.resolve()
+            try:
+                resolved.relative_to(vault_resolved)
+            except ValueError:
+                logger.warning(
+                    "proactive.source_url_path_traversal_rejected",
+                    source_id=source_id,
+                )
+                return None
+            return "obsidian://open?path=" + quote(str(resolved), safe="")
         return None
 
     async def poll_contradictions(self, detector: ContradictionDetector) -> None:

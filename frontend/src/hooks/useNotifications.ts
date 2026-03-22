@@ -71,7 +71,9 @@ export function useResolveContradiction() {
   return useMutation({
     mutationFn: resolveContradiction,
     onSuccess: (_data, contradictionId) => {
-      // Dismiss the associated notification (id pattern: "contradiction_{contradictionId}")
+      // Notification IDs for contradictions follow the convention
+      // "contradiction_{contradictionId}" (see ProactiveService.poll_contradictions).
+      // If that convention changes, this must be updated in tandem.
       dismiss(`contradiction_${contradictionId}`)
       queryClient.invalidateQueries({ queryKey: UNREAD_COUNT_KEY })
     },
