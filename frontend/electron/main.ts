@@ -1,8 +1,10 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, globalShortcut, type Tray } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'path'
 import { handleBackendExit, isPortInUse, waitForHealth } from './backend-lifecycle'
-import { broadcastBackendStatus, registerIpcHandlers } from './ipc-handlers'
+import { broadcastBackendStatus, getCurrentPreferences, registerIpcHandlers } from './ipc-handlers'
+import { createTray } from './tray'
+import { setupCloseToTray, showAndFocusWindow } from './window-manager'
 
 const BACKEND_PORT = parseInt(process.env['NEXUSPKM_BACKEND_PORT'] ?? '8000', 10)
 const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/health`
@@ -14,6 +16,7 @@ const BACKEND_TIMEOUT_S = BACKEND_TIMEOUT_MS / 1000
 
 let backendProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
+let appTray: Tray | null = null
 let isShuttingDown = false
 
 function getPreloadPath(): string {
@@ -181,6 +184,36 @@ app
     }
 
     mainWindow = createMainWindow()
+
+    setupCloseToTray(mainWindow, () => getCurrentPreferences().closeToTray)
+
+    const iconPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'build', 'icon.png')
+      : path.join(app.getAppPath(), 'build', 'icon.png')
+
+    appTray = createTray(
+      iconPath,
+      () => {
+        if (mainWindow) showAndFocusWindow(mainWindow)
+      },
+      () => {
+        if (mainWindow) {
+          showAndFocusWindow(mainWindow)
+          mainWindow.webContents.send('navigate', '/chat')
+        }
+      },
+      () => app.quit(),
+    )
+
+    globalShortcut.register('CommandOrControl+Shift+K', () => {
+      if (!mainWindow) return
+      if (mainWindow.isVisible()) {
+        mainWindow.hide()
+      } else {
+        showAndFocusWindow(mainWindow)
+      }
+    })
+
     mainWindow.once('ready-to-show', () => {
       splash.close()
       mainWindow?.show()
@@ -194,6 +227,14 @@ app
     process.stderr.write(`[main] Startup error: ${String(err)}\n`)
     app.quit()
   })
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll()
+  // Destroy the tray icon when the app is fully quitting so it doesn't linger
+  // in the menu bar. Keeping appTray referenced here also prevents premature GC.
+  appTray?.destroy()
+  appTray = null
+})
 
 app.on('before-quit', (event) => {
   if (!isShuttingDown && backendProcess !== null) {
@@ -215,6 +256,7 @@ app.on('activate', () => {
   // On macOS, re-open window only if backend is still running
   if (BrowserWindow.getAllWindows().length === 0 && backendProcess !== null) {
     mainWindow = createMainWindow()
+    setupCloseToTray(mainWindow, () => getCurrentPreferences().closeToTray)
     mainWindow.show()
     mainWindow.on('closed', () => {
       mainWindow = null

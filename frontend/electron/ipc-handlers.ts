@@ -1,7 +1,24 @@
-import { BrowserWindow, ipcMain, Notification } from 'electron'
+import { app, BrowserWindow, ipcMain, Notification } from 'electron'
 import { sanitizeNotification, type BackendStatus } from './notification-utils'
+import { loadPreferences, savePreferences, type AppPreferences } from './preferences'
 
 let currentBackendStatus: BackendStatus = 'starting'
+let preferencesCache: AppPreferences | null = null
+
+function getPreferencesFromCache(): AppPreferences {
+  if (preferencesCache === null) {
+    preferencesCache = loadPreferences(app.getPath('userData'))
+  }
+  return preferencesCache
+}
+
+/**
+ * Returns the current in-memory preferences (loading from disk on first call).
+ * Use this in main.ts to read preferences without going through IPC.
+ */
+export function getCurrentPreferences(): AppPreferences {
+  return getPreferencesFromCache()
+}
 
 /**
  * Sends a backend lifecycle status event to all live renderer windows and
@@ -27,11 +44,27 @@ export function broadcastBackendStatus(status: BackendStatus): void {
 export function registerIpcHandlers(): void {
   // Remove any previous registrations so this function is idempotent.
   ipcMain.removeHandler('get-backend-status')
+  ipcMain.removeHandler('get-preferences')
+  ipcMain.removeHandler('set-preference')
   ipcMain.removeAllListeners('notify')
 
   // Renderer can call this on mount to get current status without missing
   // broadcasts that fired before the renderer was ready.
   ipcMain.handle('get-backend-status', () => currentBackendStatus)
+
+  ipcMain.handle('get-preferences', () => getPreferencesFromCache())
+
+  ipcMain.handle('set-preference', (_event, key: unknown, value: unknown) => {
+    if (typeof key !== 'string' || typeof value !== 'boolean') return
+    const validKeys: readonly (keyof AppPreferences)[] = ['autoLaunch', 'closeToTray']
+    if (!validKeys.includes(key as keyof AppPreferences)) return
+    const updated: AppPreferences = { ...getPreferencesFromCache(), [key]: value }
+    savePreferences(app.getPath('userData'), updated)
+    preferencesCache = updated
+    if (key === 'autoLaunch') {
+      app.setLoginItemSettings({ openAtLogin: value })
+    }
+  })
 
   // Sanitise inputs from the untrusted renderer context before passing to
   // the OS notification daemon.
@@ -51,4 +84,5 @@ export function registerIpcHandlers(): void {
  */
 export function _resetForTesting(): void {
   currentBackendStatus = 'starting'
+  preferencesCache = null
 }
