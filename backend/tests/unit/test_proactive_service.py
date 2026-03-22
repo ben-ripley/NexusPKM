@@ -212,13 +212,13 @@ async def test_update_preferences(service: ProactiveService) -> None:
         meeting_prep_enabled=False,
         meeting_prep_lead_time_minutes=30,
         related_content_threshold=0.5,
-        webhook_url="http://example.com/hook",
+        webhook_url="https://example.com/hook",
     )
     await service.save_preferences(updated)
     loaded = await service.get_preferences()
     assert loaded.meeting_prep_enabled is False
     assert loaded.meeting_prep_lead_time_minutes == 30
-    assert loaded.webhook_url == "http://example.com/hook"
+    assert loaded.webhook_url == "https://example.com/hook"
 
 
 @pytest.mark.asyncio
@@ -572,17 +572,34 @@ async def test_webhook_type_specific_url_for_each_type(
         assert call_url == expected_url, f"Wrong URL for {ntype}"
 
 
-@pytest.mark.asyncio
-async def test_webhook_rejects_non_https_type_specific_url(
-    service: ProactiveService,
-) -> None:
-    """Non-HTTPS type-specific URLs are rejected (no HTTP call made)."""
-    notif = _make_notification("n-1", NotificationType.CONTRADICTION)
-    prefs = NotificationPreferences(webhook_url_contradiction="http://insecure.example.com/hook")
+def test_webhook_rejects_non_https_url_at_model_validation() -> None:
+    """Non-HTTPS URLs are rejected by Pydantic at model construction time."""
+    from pydantic import ValidationError
 
-    with patch("nexuspkm.services.proactive.httpx.AsyncClient") as mock_client_cls:
-        await service._deliver_webhook(notif, prefs)
-        mock_client_cls.assert_not_called()
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        NotificationPreferences(webhook_url_contradiction="http://insecure.example.com/hook")
+
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        NotificationPreferences(webhook_url="http://global.example.com/hook")
+
+
+def test_webhook_accepts_https_url() -> None:
+    """HTTPS URLs are accepted by the model."""
+    prefs = NotificationPreferences(
+        webhook_url="https://global.example.com/hook",
+        webhook_url_contradiction="https://contradiction.example.com/hook",
+    )
+    assert prefs.webhook_url == "https://global.example.com/hook"
+    assert prefs.webhook_url_contradiction == "https://contradiction.example.com/hook"
+
+
+def test_webhook_accepts_none_url() -> None:
+    """None is accepted for all webhook URL fields."""
+    prefs = NotificationPreferences(
+        webhook_url=None,
+        webhook_url_meeting_prep=None,
+    )
+    assert prefs.webhook_url is None
 
 
 @pytest.mark.asyncio
@@ -651,8 +668,6 @@ async def test_webhook_schema_migration_from_old_db(
     db_path: Path,
 ) -> None:
     """Init migrates an existing DB that lacks the per-type webhook columns."""
-    import sqlite3
-
     # Create old-schema DB (no per-type webhook columns)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(db_path) as conn:

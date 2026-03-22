@@ -147,8 +147,8 @@ class ProactiveService:
                     conn.execute(stmt)
                 except sqlite3.OperationalError as exc:
                     if "duplicate column name" not in str(exc).lower():
-                        logger.warning(
-                            "proactive.schema_migration_error",
+                        logger.error(
+                            "proactive.schema_migration_failed",
                             stmt=stmt,
                             error=str(exc),
                         )
@@ -659,6 +659,12 @@ class ProactiveService:
             NotificationType.CONTRADICTION: prefs.webhook_url_contradiction,
             NotificationType.INSIGHT: prefs.webhook_url_insight,
         }
+        if notification.type not in type_url_map:
+            logger.warning(
+                "proactive.webhook_unknown_notification_type",
+                notification_type=notification.type,
+                notification_id=notification.id,
+            )
         url = type_url_map.get(notification.type) or prefs.webhook_url
         if not url:
             return

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from nexuspkm.models.schedule import PersonSummary
 
@@ -55,6 +55,22 @@ class NotificationPreferences(BaseModel):
     webhook_url_related_content: str | None = None
     webhook_url_contradiction: str | None = None
     webhook_url_insight: str | None = None
+
+    @field_validator(
+        "webhook_url",
+        "webhook_url_meeting_prep",
+        "webhook_url_related_content",
+        "webhook_url_contradiction",
+        "webhook_url_insight",
+        mode="before",
+    )
+    @classmethod
+    def _require_https(cls, v: object) -> object:
+        if v is None:
+            return v
+        if not isinstance(v, str) or not v.startswith("https://"):
+            raise ValueError("webhook URL must use HTTPS")
+        return v
 
 
 class DocumentSummary(BaseModel):
