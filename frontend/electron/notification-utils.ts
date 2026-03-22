@@ -1,5 +1,15 @@
 export type BackendStatus = 'starting' | 'healthy' | 'error' | 'stopped'
 
+export interface AppPreferences {
+  autoLaunch: boolean
+  closeToTray: boolean
+}
+
+export const DEFAULT_PREFERENCES: AppPreferences = {
+  autoLaunch: false,
+  closeToTray: true,
+}
+
 /**
  * Validates and sanitises `title` / `body` received over the untrusted
  * renderer IPC channel before passing them to the OS notification daemon.

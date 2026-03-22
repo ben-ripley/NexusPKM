@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { BackendStatus } from './notification-utils'
+import type { AppPreferences, BackendStatus } from './notification-utils'
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
@@ -50,5 +50,29 @@ contextBridge.exposeInMainWorld('electron', {
    */
   notify(title: string, body: string): void {
     ipcRenderer.send('notify', title, body)
+  },
+
+  /** Retrieve persisted user preferences from the main process. */
+  getPreferences(): Promise<AppPreferences> {
+    return ipcRenderer.invoke('get-preferences') as Promise<AppPreferences>
+  },
+
+  /** Persist a single preference change. Applies side-effects (e.g. auto-launch) in main. */
+  setPreference(key: keyof AppPreferences, value: boolean): Promise<void> {
+    return ipcRenderer.invoke('set-preference', key, value) as Promise<void>
+  },
+
+  /**
+   * Subscribe to navigation requests from the main process (e.g. tray Quick Chat).
+   * Returns a cleanup function that removes the listener.
+   */
+  onNavigate(callback: (routePath: string) => void): () => void {
+    const handler = (_e: IpcRendererEvent, routePath: unknown) => {
+      if (typeof routePath === 'string') callback(routePath)
+    }
+    ipcRenderer.on('navigate', handler)
+    return () => {
+      ipcRenderer.removeListener('navigate', handler)
+    }
   },
 })

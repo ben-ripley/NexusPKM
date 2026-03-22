@@ -27,8 +27,15 @@ const mocks = vi.hoisted(() => {
     removeAllListeners: vi.fn(),
     notificationShow,
     NotificationCtor,
+    getPath: vi.fn().mockReturnValue('/tmp/fake-userData'),
+    setLoginItemSettings: vi.fn(),
   }
 })
+
+const prefsMocks = vi.hoisted(() => ({
+  loadPreferences: vi.fn().mockResolvedValue({ autoLaunch: false, closeToTray: true }),
+  savePreferences: vi.fn().mockResolvedValue(true),
+}))
 
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: mocks.getAllWindows },
@@ -39,6 +46,15 @@ vi.mock('electron', () => ({
     removeAllListeners: mocks.removeAllListeners,
   },
   Notification: mocks.NotificationCtor,
+  app: {
+    getPath: mocks.getPath,
+    setLoginItemSettings: mocks.setLoginItemSettings,
+  },
+}))
+
+vi.mock('../../electron/preferences', () => ({
+  loadPreferences: prefsMocks.loadPreferences,
+  savePreferences: prefsMocks.savePreferences,
 }))
 
 import {
@@ -195,5 +211,148 @@ describe('registerIpcHandlers — notify', () => {
     mocks.NotificationCtor.isSupported.mockReturnValue(false)
     getNotifyHandler()({}, 'title', 'body')
     expect(mocks.NotificationCtor).not.toHaveBeenCalled()
+  })
+})
+
+// ---- registerIpcHandlers — get-preferences ----
+
+describe('registerIpcHandlers — get-preferences', () => {
+  function getGetPreferencesHandler(): () => { autoLaunch: boolean; closeToTray: boolean } {
+    const entry = mocks.handle.mock.calls.find((args: unknown[]) => args[0] === 'get-preferences')
+    return entry?.[1] as () => { autoLaunch: boolean; closeToTray: boolean }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    _resetForTesting()
+    prefsMocks.loadPreferences.mockResolvedValue({ autoLaunch: false, closeToTray: true })
+    mocks.getAllWindows.mockReturnValue([])
+    registerIpcHandlers()
+  })
+
+  it('removes any previous get-preferences handler before registering', () => {
+    expect(mocks.removeHandler).toHaveBeenCalledWith('get-preferences')
+  })
+
+  it('registers the get-preferences handle', () => {
+    expect(mocks.handle).toHaveBeenCalledWith('get-preferences', expect.any(Function))
+  })
+
+  it('returns default preferences on first call', async () => {
+    const result = await getGetPreferencesHandler()()
+    expect(result).toEqual({ autoLaunch: false, closeToTray: true })
+  })
+
+  it('loads preferences from the userData path', async () => {
+    await getGetPreferencesHandler()()
+    expect(mocks.getPath).toHaveBeenCalledWith('userData')
+    expect(prefsMocks.loadPreferences).toHaveBeenCalledWith('/tmp/fake-userData')
+  })
+
+  it('caches loaded preferences and does not reload on second call', async () => {
+    await getGetPreferencesHandler()()
+    await getGetPreferencesHandler()()
+    expect(prefsMocks.loadPreferences).toHaveBeenCalledOnce()
+  })
+})
+
+// ---- registerIpcHandlers — set-preference ----
+
+describe('registerIpcHandlers — set-preference', () => {
+  type SetPrefHandler = (event: unknown, key: unknown, value: unknown) => Promise<void>
+
+  function getSetPreferenceHandler(): SetPrefHandler {
+    const entry = mocks.handle.mock.calls.find((args: unknown[]) => args[0] === 'set-preference')
+    return entry?.[1] as SetPrefHandler
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    _resetForTesting()
+    prefsMocks.loadPreferences.mockResolvedValue({ autoLaunch: false, closeToTray: true })
+    mocks.getAllWindows.mockReturnValue([])
+    registerIpcHandlers()
+  })
+
+  it('removes any previous set-preference handler before registering', () => {
+    expect(mocks.removeHandler).toHaveBeenCalledWith('set-preference')
+  })
+
+  it('registers the set-preference handle', () => {
+    expect(mocks.handle).toHaveBeenCalledWith('set-preference', expect.any(Function))
+  })
+
+  it('saves updated preferences when a valid key and boolean value are provided', async () => {
+    await getSetPreferenceHandler()({}, 'closeToTray', false)
+    expect(prefsMocks.savePreferences).toHaveBeenCalledWith('/tmp/fake-userData', {
+      autoLaunch: false,
+      closeToTray: false,
+    })
+  })
+
+  it('calls app.setLoginItemSettings when autoLaunch is set to true', async () => {
+    await getSetPreferenceHandler()({}, 'autoLaunch', true)
+    // closeToTray defaults to true so openAsHidden should be true as well
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: true,
+      openAsHidden: true,
+    })
+  })
+
+  it('calls app.setLoginItemSettings with openAsHidden false when closeToTray is false', async () => {
+    // Start with closeToTray: false already in the loaded preferences
+    _resetForTesting()
+    prefsMocks.loadPreferences.mockResolvedValue({ autoLaunch: false, closeToTray: false })
+    registerIpcHandlers()
+
+    await getSetPreferenceHandler()({}, 'autoLaunch', true)
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: true,
+      openAsHidden: false,
+    })
+  })
+
+  it('calls app.setLoginItemSettings when autoLaunch is set to false', async () => {
+    await getSetPreferenceHandler()({}, 'autoLaunch', false)
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: false,
+      openAsHidden: false,
+    })
+  })
+
+  it('calls app.setLoginItemSettings when closeToTray changes while autoLaunch is false', async () => {
+    await getSetPreferenceHandler()({}, 'closeToTray', false)
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: false,
+      openAsHidden: false,
+    })
+  })
+
+  it('drops silently when key is not a string', async () => {
+    await getSetPreferenceHandler()({}, 42, true)
+    expect(prefsMocks.savePreferences).not.toHaveBeenCalled()
+  })
+
+  it('drops silently when value is not a boolean', async () => {
+    await getSetPreferenceHandler()({}, 'autoLaunch', 'yes')
+    expect(prefsMocks.savePreferences).not.toHaveBeenCalled()
+  })
+
+  it('drops silently when key is not a known preference key', async () => {
+    await getSetPreferenceHandler()({}, 'unknownKey', true)
+    expect(prefsMocks.savePreferences).not.toHaveBeenCalled()
+  })
+
+  it('does not update cache or call setLoginItemSettings when save fails', async () => {
+    prefsMocks.savePreferences.mockResolvedValueOnce(false)
+    await getSetPreferenceHandler()({}, 'autoLaunch', true)
+    // setLoginItemSettings must not fire when the write failed
+    expect(mocks.setLoginItemSettings).not.toHaveBeenCalled()
+    // Cache was not updated — a subsequent get-preferences call still returns original value
+    const getHandler = mocks.handle.mock.calls.find(
+      (args: unknown[]) => args[0] === 'get-preferences',
+    )?.[1] as (() => Promise<{ autoLaunch: boolean }>) | undefined
+    const prefs = await getHandler?.()
+    expect(prefs?.autoLaunch).toBe(false)
   })
 })
