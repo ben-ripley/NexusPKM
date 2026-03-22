@@ -2,8 +2,6 @@ import fs from 'fs'
 import path from 'path'
 import { DEFAULT_PREFERENCES, type AppPreferences } from './notification-utils'
 
-export type { AppPreferences }
-
 const PREFS_FILE = 'preferences.json'
 
 /**

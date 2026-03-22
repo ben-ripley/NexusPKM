@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-import type { BackendStatus } from './notification-utils'
-import type { AppPreferences } from './notification-utils'
+import type { AppPreferences, BackendStatus } from './notification-utils'
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,

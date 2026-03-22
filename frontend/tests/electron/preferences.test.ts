@@ -4,7 +4,8 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { loadPreferences, savePreferences, type AppPreferences } from '../../electron/preferences'
+import type { AppPreferences } from '../../electron/notification-utils'
+import { loadPreferences, savePreferences } from '../../electron/preferences'
 
 describe('loadPreferences', () => {
   let tmpDir: string
