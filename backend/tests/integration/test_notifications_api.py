@@ -47,6 +47,7 @@ def _make_mock_service() -> MagicMock:
     svc.get_preferences = AsyncMock(return_value=NotificationPreferences())
     svc.save_preferences = AsyncMock(return_value=None)
     svc.get_meeting_context = AsyncMock(return_value=None)
+    svc._scan_tick = AsyncMock(return_value=None)
 
     # WS manager — connect must call ws.accept() so the socket is in CONNECTED state
     from fastapi import WebSocket as _WS
@@ -241,6 +242,17 @@ def test_get_meeting_context_returns_200(client: TestClient, mock_service: Magic
     data = response.json()
     assert data["meeting_id"] == "m-1"
     assert data["meeting_title"] == "Sprint Review"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/notifications/scan
+# ---------------------------------------------------------------------------
+
+
+def test_trigger_scan_returns_204(client: TestClient, mock_service: MagicMock) -> None:
+    response = client.post("/api/notifications/scan")
+    assert response.status_code == 204
+    mock_service._scan_tick.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

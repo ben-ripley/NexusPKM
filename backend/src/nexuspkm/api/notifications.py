@@ -3,6 +3,7 @@
 Endpoints:
   GET    /api/notifications               list notifications
   GET    /api/notifications/unread-count  unread count
+  POST   /api/notifications/scan         trigger an immediate scan tick
   PUT    /api/notifications/{id}/read     mark as read
   DELETE /api/notifications/{id}          dismiss
   GET    /api/context/meeting/{id}        meeting prep context
@@ -79,6 +80,20 @@ async def get_unread_count(
 ) -> dict[str, int]:
     count = await service.get_unread_count()
     return {"count": count}
+
+
+# ---------------------------------------------------------------------------
+# POST /api/notifications/scan
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/notifications/scan", status_code=204)
+async def trigger_scan(
+    service: Annotated[ProactiveService, Depends(get_proactive_service)],
+) -> Response:
+    """Immediately run a proactive scan tick (meeting prep + contradiction poll)."""
+    await service._scan_tick()
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------
