@@ -82,8 +82,14 @@ export function registerIpcHandlers(): void {
     const saved = await savePreferences(app.getPath('userData'), updated)
     if (saved) {
       preferencesCache = updated
-      if (key === 'autoLaunch') {
-        app.setLoginItemSettings({ openAtLogin: value })
+      // Keep the OS login-item in sync whenever autoLaunch or closeToTray changes.
+      // openAsHidden ensures the app starts silently in the tray (macOS) when
+      // both autoLaunch and closeToTray are enabled.
+      if (key === 'autoLaunch' || key === 'closeToTray') {
+        app.setLoginItemSettings({
+          openAtLogin: updated.autoLaunch,
+          openAsHidden: updated.autoLaunch && updated.closeToTray,
+        })
       }
     }
   })

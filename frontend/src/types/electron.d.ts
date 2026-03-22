@@ -6,8 +6,7 @@
  * in electron/ so this declaration stays in sync automatically.
  */
 
-import type { BackendStatus } from '../../electron/notification-utils'
-import type { AppPreferences } from '../../electron/notification-utils'
+import type { AppPreferences, BackendStatus } from '../../electron/notification-utils'
 
 interface ElectronAPI {
   /** The OS platform string (e.g. 'darwin', 'win32'). */

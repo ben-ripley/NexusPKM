@@ -225,7 +225,7 @@ describe('registerIpcHandlers — get-preferences', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     _resetForTesting()
-    prefsMocks.loadPreferences.mockReturnValue({ autoLaunch: false, closeToTray: true })
+    prefsMocks.loadPreferences.mockResolvedValue({ autoLaunch: false, closeToTray: true })
     mocks.getAllWindows.mockReturnValue([])
     registerIpcHandlers()
   })
@@ -269,7 +269,7 @@ describe('registerIpcHandlers — set-preference', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     _resetForTesting()
-    prefsMocks.loadPreferences.mockReturnValue({ autoLaunch: false, closeToTray: true })
+    prefsMocks.loadPreferences.mockResolvedValue({ autoLaunch: false, closeToTray: true })
     mocks.getAllWindows.mockReturnValue([])
     registerIpcHandlers()
   })
@@ -292,17 +292,40 @@ describe('registerIpcHandlers — set-preference', () => {
 
   it('calls app.setLoginItemSettings when autoLaunch is set to true', async () => {
     await getSetPreferenceHandler()({}, 'autoLaunch', true)
-    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: true })
+    // closeToTray defaults to true so openAsHidden should be true as well
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: true,
+      openAsHidden: true,
+    })
+  })
+
+  it('calls app.setLoginItemSettings with openAsHidden false when closeToTray is false', async () => {
+    // Start with closeToTray: false already in the loaded preferences
+    _resetForTesting()
+    prefsMocks.loadPreferences.mockResolvedValue({ autoLaunch: false, closeToTray: false })
+    registerIpcHandlers()
+
+    await getSetPreferenceHandler()({}, 'autoLaunch', true)
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: true,
+      openAsHidden: false,
+    })
   })
 
   it('calls app.setLoginItemSettings when autoLaunch is set to false', async () => {
     await getSetPreferenceHandler()({}, 'autoLaunch', false)
-    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({ openAtLogin: false })
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: false,
+      openAsHidden: false,
+    })
   })
 
-  it('does not call app.setLoginItemSettings when closeToTray is changed', async () => {
+  it('calls app.setLoginItemSettings when closeToTray changes while autoLaunch is false', async () => {
     await getSetPreferenceHandler()({}, 'closeToTray', false)
-    expect(mocks.setLoginItemSettings).not.toHaveBeenCalled()
+    expect(mocks.setLoginItemSettings).toHaveBeenCalledWith({
+      openAtLogin: false,
+      openAsHidden: false,
+    })
   })
 
   it('drops silently when key is not a string', async () => {
