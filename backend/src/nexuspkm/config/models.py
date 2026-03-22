@@ -152,6 +152,8 @@ class OutlookConnectorConfig(BaseModel):
     email_lookback_date: str | None = None
     max_emails_per_sync: int = Field(default=500, gt=0)
     calendar_window_days: int = Field(default=30, gt=0)  # past + future days
+    # ISO date "YYYY-MM-DD" — overrides the lookback portion of calendar_window_days.
+    calendar_lookback_date: str | None = None
 
 
 class ObsidianConnectorConfig(BaseModel):

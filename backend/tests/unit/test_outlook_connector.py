@@ -649,3 +649,79 @@ class TestEmailLookbackDate:
             await connector._list_emails_delta(MagicMock(), "token", delta_token=None)
 
         assert "$filter" not in captured_params
+
+
+# ---------------------------------------------------------------------------
+# TestCalendarLookbackDate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestCalendarLookbackDate:
+    async def test_lookback_date_overrides_window_start(self, tmp_path: Path) -> None:
+        """calendar_lookback_date is used as startDateTime instead of now - window."""
+        connector = _make_connector(tmp_path, calendar_lookback_date="2024-06-01")
+
+        captured_params: dict[str, str] = {}
+
+        async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
+            if "calendarView" in url and kwargs.get("params"):
+                captured_params.update(kwargs["params"])  # type: ignore[arg-type]
+            return _make_response(200, json_body={"value": []})
+
+        with patch.object(connector, "_request_with_retry", side_effect=fake_request):
+            await connector._fetch_calendar(MagicMock(), "token")
+
+        assert captured_params["startDateTime"].startswith("2024-06-01")
+
+    async def test_lookback_date_does_not_affect_end(self, tmp_path: Path) -> None:
+        """calendar_lookback_date only changes start; end is still now + window."""
+        import datetime as dt
+
+        connector = _make_connector(
+            tmp_path, calendar_lookback_date="2024-01-01", calendar_window_days=7
+        )
+
+        captured_params: dict[str, str] = {}
+
+        async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
+            if "calendarView" in url and kwargs.get("params"):
+                captured_params.update(kwargs["params"])  # type: ignore[arg-type]
+            return _make_response(200, json_body={"value": []})
+
+        before = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
+        with patch.object(connector, "_request_with_retry", side_effect=fake_request):
+            await connector._fetch_calendar(MagicMock(), "token")
+        after = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
+
+        end_dt = dt.datetime.strptime(
+            captured_params["endDateTime"], "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=dt.UTC)
+        expected_min = before + dt.timedelta(days=7)
+        expected_max = after + dt.timedelta(days=7)
+        assert expected_min <= end_dt <= expected_max
+
+    async def test_no_lookback_date_uses_window(self, tmp_path: Path) -> None:
+        """Without calendar_lookback_date, start is now - calendar_window_days."""
+        import datetime as dt
+
+        connector = _make_connector(tmp_path, calendar_window_days=14)
+
+        captured_params: dict[str, str] = {}
+
+        async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
+            if "calendarView" in url and kwargs.get("params"):
+                captured_params.update(kwargs["params"])  # type: ignore[arg-type]
+            return _make_response(200, json_body={"value": []})
+
+        before = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
+        with patch.object(connector, "_request_with_retry", side_effect=fake_request):
+            await connector._fetch_calendar(MagicMock(), "token")
+        after = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
+
+        start_dt = dt.datetime.strptime(
+            captured_params["startDateTime"], "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=dt.UTC)
+        expected_min = before - dt.timedelta(days=14)
+        expected_max = after - dt.timedelta(days=14)
+        assert expected_min <= start_dt <= expected_max

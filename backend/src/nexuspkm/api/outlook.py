@@ -38,6 +38,7 @@ class OutlookStatusResponse(BaseModel):
     folders: list[str] = Field(default_factory=list)
     calendar_window_days: int = 30
     email_lookback_date: str | None = None
+    calendar_lookback_date: str | None = None
 
 
 class OutlookConfigUpdate(BaseModel):
@@ -48,6 +49,7 @@ class OutlookConfigUpdate(BaseModel):
     max_emails_per_sync: int | None = Field(default=None, gt=0)
     calendar_window_days: int | None = Field(default=None, gt=0)
     email_lookback_date: str | None = None
+    calendar_lookback_date: str | None = None
 
 
 class SyncStartedResponse(BaseModel):
@@ -97,10 +99,12 @@ async def get_status(
     folders: list[str] = []
     calendar_window_days = 30
     email_lookback_date: str | None = None
+    calendar_lookback_date: str | None = None
     if isinstance(connector, OutlookConnector):
         folders = connector.config.folders
         calendar_window_days = connector.config.calendar_window_days
         email_lookback_date = connector.config.email_lookback_date
+        calendar_lookback_date = connector.config.calendar_lookback_date
 
     last_sync_at_str: str | None = None
     if status.last_sync_at is not None:
@@ -114,6 +118,7 @@ async def get_status(
         folders=folders,
         calendar_window_days=calendar_window_days,
         email_lookback_date=email_lookback_date,
+        calendar_lookback_date=calendar_lookback_date,
     )
 
 
@@ -156,6 +161,8 @@ async def update_config(
         updates["calendar_window_days"] = payload.calendar_window_days
     if payload.email_lookback_date is not None:
         updates["email_lookback_date"] = payload.email_lookback_date
+    if payload.calendar_lookback_date is not None:
+        updates["calendar_lookback_date"] = payload.calendar_lookback_date
 
     new_interval = (
         payload.sync_interval_minutes

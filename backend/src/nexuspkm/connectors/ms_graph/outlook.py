@@ -262,9 +262,13 @@ class OutlookConnector(BaseConnector):
     ) -> list[Document]:
         """Fetch calendar events within the configured window."""
         now = datetime.datetime.now(tz=datetime.UTC)
-        window = datetime.timedelta(days=self._config.calendar_window_days)
-        start = now - window
-        end = now + window
+        if self._config.calendar_lookback_date:
+            start = datetime.datetime.fromisoformat(
+                self._config.calendar_lookback_date
+            ).replace(tzinfo=datetime.UTC)
+        else:
+            start = now - datetime.timedelta(days=self._config.calendar_window_days)
+        end = now + datetime.timedelta(days=self._config.calendar_window_days)
 
         events = await self._list_calendar_events(client, token, start, end)
         return [self._to_calendar_document(event) for event in events]
