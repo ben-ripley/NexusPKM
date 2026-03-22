@@ -19,7 +19,15 @@ from __future__ import annotations
 from typing import Annotated
 
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 
 from nexuspkm.models.notification import (
     MeetingContext,
@@ -54,8 +62,8 @@ def get_proactive_service() -> ProactiveService:
 async def list_notifications(
     service: Annotated[ProactiveService, Depends(get_proactive_service)],
     unread_only: bool = False,
-    limit: int = 50,
-    offset: int = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[Notification]:
     return await service.list_notifications(unread_only=unread_only, limit=limit, offset=offset)
 

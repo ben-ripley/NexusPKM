@@ -81,6 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # VectorStore.__init__ is lazy (no disk I/O); GraphStore.__init__ opens the
     # Kuzu database and runs schema DDL, so it must be offloaded to a thread.
     _vector_store = VectorStore(db_path=str(data_dir / "lancedb"), dimensions=embed_dim)
+    llm_provider = _registry.get_llm()
     try:
         _graph_store = await asyncio.to_thread(GraphStore, data_dir / "kuzu")
         # Init extraction queue (persistent SQLite) before KnowledgeIndex so the
@@ -91,11 +92,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         contradiction_db_path = data_dir / "contradictions.db"
         _contradiction_detector = ContradictionDetector(contradiction_db_path)
         await _contradiction_detector.init()
+        # ProactiveService is created before KnowledgeIndex so its on_insert hook
+        # can be passed via the constructor rather than mutated after construction.
+        _proactive_service = ProactiveService(
+            graph_store=_graph_store,
+            llm_provider=llm_provider,
+            db_path=data_dir / "notifications.db",
+        )
+        await _proactive_service.init()
         _knowledge_index = KnowledgeIndex(
             _vector_store,
             _graph_store,
             embedding_provider,
             extraction_queue=_extraction_queue,
+            on_insert=_proactive_service.on_document_ingested,
         )
     except Exception:
         if _graph_store is not None:
@@ -109,15 +119,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[search_get_graph_store] = lambda: _graph_store
     _schedule_service = ScheduleService(_graph_store)
     app.dependency_overrides[get_schedule_service] = lambda: _schedule_service
-
-    llm_provider = _registry.get_llm()
-    _proactive_service = ProactiveService(
-        graph_store=_graph_store,
-        llm_provider=llm_provider,
-        db_path=data_dir / "notifications.db",
-    )
-    await _proactive_service.init()
-    _knowledge_index._on_insert = _proactive_service.on_document_ingested
     app.dependency_overrides[get_proactive_service] = lambda: _proactive_service
     _extractor = EntityExtractor(llm_provider)
     _deduplicator = EntityDeduplicator(

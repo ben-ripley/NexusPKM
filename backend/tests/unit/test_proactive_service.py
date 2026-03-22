@@ -391,3 +391,85 @@ async def test_poll_contradictions_skipped_when_disabled(
 
     await service.poll_contradictions(mock_detector)
     mock_detector.list_unresolved.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Background scanner: _scan_upcoming_meetings / _scan_tick
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_scan_upcoming_meetings_creates_notification(
+    service: ProactiveService,
+) -> None:
+    from datetime import timedelta
+
+    now = datetime.now(tz=UTC)
+    meeting = {"id": "m-1", "title": "Sprint Review", "date": now + timedelta(minutes=30)}
+    service._graph.execute = MagicMock(return_value=[meeting])
+
+    with patch.object(service, "get_meeting_context", new_callable=AsyncMock, return_value=None):
+        await service._scan_upcoming_meetings()
+
+    notifications = await service.list_notifications()
+    assert len(notifications) == 1
+    assert notifications[0].id == "meeting_prep_m-1"
+    assert notifications[0].type == NotificationType.MEETING_PREP
+
+
+@pytest.mark.asyncio
+async def test_scan_upcoming_meetings_no_duplicates(
+    service: ProactiveService,
+) -> None:
+    from datetime import timedelta
+
+    now = datetime.now(tz=UTC)
+    meeting = {"id": "m-1", "title": "Sprint Review", "date": now + timedelta(minutes=30)}
+    service._graph.execute = MagicMock(return_value=[meeting])
+
+    with patch.object(service, "get_meeting_context", new_callable=AsyncMock, return_value=None):
+        await service._scan_upcoming_meetings()
+        await service._scan_upcoming_meetings()  # second call — no duplicate
+
+    notifications = await service.list_notifications()
+    assert len(notifications) == 1
+
+
+@pytest.mark.asyncio
+async def test_scan_upcoming_meetings_skipped_when_disabled(
+    service: ProactiveService,
+) -> None:
+    prefs = NotificationPreferences(meeting_prep_enabled=False)
+    await service.save_preferences(prefs)
+
+    service._graph.execute = MagicMock(return_value=[])
+
+    await service._scan_upcoming_meetings()
+
+    service._graph.execute.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_scan_tick_calls_scan_and_polls_contradictions(
+    service: ProactiveService,
+) -> None:
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[])
+    service._contradiction_detector = mock_detector
+
+    with patch.object(service, "_scan_upcoming_meetings", new_callable=AsyncMock) as mock_scan:
+        await service._scan_tick()
+        mock_scan.assert_called_once()
+
+    mock_detector.list_unresolved.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_scan_tick_no_contradiction_detector(
+    service: ProactiveService,
+) -> None:
+    """_scan_tick must not raise if no contradiction detector is wired."""
+    service._contradiction_detector = None
+
+    with patch.object(service, "_scan_upcoming_meetings", new_callable=AsyncMock):
+        await service._scan_tick()  # should not raise

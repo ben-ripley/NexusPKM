@@ -83,8 +83,6 @@ export function useUpdatePreferences() {
 
 export function useNotificationWebSocket() {
   const addNotification = useNotificationsStore((s) => s.addNotification)
-  const setUnreadCount = useNotificationsStore((s) => s.setUnreadCount)
-  const unreadCount = useNotificationsStore((s) => s.unreadCount)
   const queryClient = useQueryClient()
 
   useEffect(() => {
@@ -108,9 +106,10 @@ export function useNotificationWebSocket() {
       ws.onmessage = (event: MessageEvent) => {
         try {
           const notif = JSON.parse(event.data as string)
+          // addNotification already increments unreadCount in the store.
           addNotification(notif)
+          // Invalidate the server count so a background refetch stays in sync.
           if (!notif.read) {
-            setUnreadCount(unreadCount + 1)
             queryClient.invalidateQueries({ queryKey: UNREAD_COUNT_KEY })
           }
         } catch {
@@ -134,5 +133,5 @@ export function useNotificationWebSocket() {
       shouldReconnect = false
       ws?.close(1000)
     }
-  }, [addNotification, setUnreadCount, queryClient]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [addNotification, queryClient])
 }

@@ -20,8 +20,10 @@ import sqlite3
 from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
+import httpx
 import structlog
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import WebSocket
@@ -89,7 +91,7 @@ class NotificationWSManager:
     async def broadcast(self, notification: Notification) -> None:
         payload = notification.model_dump_json()
         dead: set[WebSocket] = set()
-        for ws in self._connections:
+        for ws in list(self._connections):  # snapshot to avoid mutation-during-iteration
             try:
                 await ws.send_text(payload)
             except Exception:
@@ -188,12 +190,13 @@ class ProactiveService:
         )
 
         for meeting in meetings:
-            notif_id = f"meeting_prep_{meeting['id']}"
+            meeting_id = str(meeting["id"])
+            notif_id = f"meeting_prep_{meeting_id}"
             exists = await loop.run_in_executor(None, self._notification_exists_sync, notif_id)
             if exists:
                 continue
 
-            ctx = await self.get_meeting_context(meeting["id"])
+            ctx = await self.get_meeting_context(meeting_id)
             summary_parts = []
             if ctx:
                 if ctx.attendees:
@@ -205,10 +208,10 @@ class ProactiveService:
             notif = Notification(
                 id=notif_id,
                 type=NotificationType.MEETING_PREP,
-                title=f"Upcoming: {meeting.get('title', 'Meeting')}",
+                title=f"Upcoming: {meeting.get('title') or 'Meeting'}",
                 summary="; ".join(summary_parts) or "Meeting starting soon",
                 priority=NotificationPriority.HIGH,
-                data={"meeting_id": meeting["id"]},
+                data={"meeting_id": meeting_id},
                 created_at=datetime.now(tz=UTC),
             )
             await self.save_notification(notif)
@@ -217,7 +220,7 @@ class ProactiveService:
 
     def _fetch_upcoming_meetings_sync(
         self, now: datetime, window_end: datetime
-    ) -> list[dict[str, Any]]:
+    ) -> list[dict[str, object]]:
         rows = self._graph.execute(
             "MATCH (m:Meeting) "
             "WHERE m.date >= $now AND m.date <= $window_end "
@@ -335,10 +338,7 @@ class ProactiveService:
         """Jaccard similarity between two entity sets."""
         if not a and not b:
             return 0.0
-        union = len(a | b)
-        if union == 0:
-            return 0.0
-        return len(a & b) / union
+        return len(a & b) / len(a | b)
 
     # ------------------------------------------------------------------
     # Contradiction notification bridging
@@ -541,8 +541,10 @@ class ProactiveService:
 
     def _mark_read_sync(self, notification_id: str) -> bool:
         with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.execute("UPDATE notifications SET read=1 WHERE id=?", (notification_id,))
-        return cursor.rowcount > 0
+            rowcount = conn.execute(
+                "UPDATE notifications SET read=1 WHERE id=?", (notification_id,)
+            ).rowcount
+        return rowcount > 0
 
     async def dismiss(self, notification_id: str) -> bool:
         loop = asyncio.get_running_loop()
@@ -550,8 +552,10 @@ class ProactiveService:
 
     def _dismiss_sync(self, notification_id: str) -> bool:
         with sqlite3.connect(self._db_path) as conn:
-            cursor = conn.execute("DELETE FROM notifications WHERE id=?", (notification_id,))
-        return cursor.rowcount > 0
+            rowcount = conn.execute(
+                "DELETE FROM notifications WHERE id=?", (notification_id,)
+            ).rowcount
+        return rowcount > 0
 
     # ------------------------------------------------------------------
     # Preferences (async public API)
@@ -614,9 +618,15 @@ class ProactiveService:
     ) -> None:
         if not prefs.webhook_url:
             return
+        parsed = urlparse(prefs.webhook_url)
+        if parsed.scheme != "https":
+            logger.warning(
+                "proactive.webhook_rejected_non_https",
+                notification_id=notification.id,
+                scheme=parsed.scheme,
+            )
+            return
         try:
-            import httpx
-
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(
                     prefs.webhook_url,
@@ -634,24 +644,29 @@ class ProactiveService:
 
     @staticmethod
     def _row_to_doc_summary(
-        row: dict[str, Any], default_source: str = "document"
+        row: dict[str, object], default_source: str = "document"
     ) -> DocumentSummary:
-        created_at: datetime | None = row.get("created_at")
-        if (
-            created_at is not None
-            and isinstance(created_at, datetime)
-            and created_at.tzinfo is None
-        ):
+        raw_ts = row.get("created_at")
+        created_at: datetime | None = None
+        if isinstance(raw_ts, datetime):
+            created_at = raw_ts
+        if created_at is not None and created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=UTC)
+        doc_id = row.get("doc_id") or row.get("id") or ""
+        title = row.get("title") or ""
+        source_type = row.get("source_type") or default_source
         return DocumentSummary(
-            id=row.get("doc_id") or row.get("id") or "",
-            title=row.get("title") or "",
-            source_type=row.get("source_type") or default_source,
+            id=str(doc_id),
+            title=str(title),
+            source_type=str(source_type),
             created_at=created_at,
         )
 
     @staticmethod
     def _row_to_notification(row: sqlite3.Row) -> Notification:
+        created_at = datetime.fromisoformat(row["created_at"])
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
         return Notification(
             id=row["id"],
             type=NotificationType(row["type"]),
@@ -660,5 +675,5 @@ class ProactiveService:
             priority=NotificationPriority(row["priority"]),
             data=json.loads(row["data"]),
             read=bool(row["read"]),
-            created_at=datetime.fromisoformat(row["created_at"]),
+            created_at=created_at,
         )

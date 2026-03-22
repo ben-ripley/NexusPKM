@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,7 +35,7 @@ class Notification(BaseModel):
     title: str
     summary: str
     priority: NotificationPriority
-    data: dict[str, Any] = Field(default_factory=dict)
+    data: dict[str, object] = Field(default_factory=dict)
     read: bool = False
     created_at: datetime
 
