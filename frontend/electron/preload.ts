@@ -21,7 +21,17 @@ contextBridge.exposeInMainWorld('electron', {
    * missing broadcasts that fired before the renderer was ready).
    */
   getBackendStatus(): Promise<BackendStatus> {
-    return ipcRenderer.invoke('get-backend-status') as Promise<BackendStatus>
+    return ipcRenderer.invoke('get-backend-status').then((value: unknown): BackendStatus => {
+      if (
+        value === 'starting' ||
+        value === 'healthy' ||
+        value === 'error' ||
+        value === 'stopped'
+      ) {
+        return value
+      }
+      return 'starting'
+    })
   },
 
   /**
