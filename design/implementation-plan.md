@@ -41,7 +41,7 @@ Epic 1: Infrastructure ──► Epic 2: Core Backend ──► Epic 3: Knowledg
 | 2 | Epic 3 | NXP-3 | Knowledge Engine | NXP-2 |
 | 3 | Epic 4 | NXP-4 | Connector Framework & V1 Connectors | NXP-3 |
 | 4 | Epic 5 | NXP-5 | Entity & Relationship Intelligence | NXP-3, NXP-4 |
-| 5 | Epic 6 | NXP-6 | Frontend Core | NXP-3, NXP-5 |
+| 5 | Epic 6 | NXP-6 | Frontend Core (F-008, F-014) — incl. Electron packaging (NXP-97, 98, 99) | NXP-3, NXP-5 |
 | 6 | Epic 7 | NXP-7 | V2 Connectors (Apple Notes, Outlook) | NXP-4 |
 | 7 | Epic 8 | NXP-8 | V3 Connector & Advanced Features | NXP-4, NXP-5, NXP-6 |
 | 8 | Epic 9 | NXP-9 | Automation & Extensibility | NXP-8 |

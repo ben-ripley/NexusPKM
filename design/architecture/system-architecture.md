@@ -1,13 +1,37 @@
 # NexusPKM System Architecture
 
-**Version:** 1.0
-**Date:** 2026-03-16
+**Version:** 1.1
+**Date:** 2026-03-22
 
 ## 1. Overview
 
 NexusPKM is a locally-hosted personal knowledge management application that consolidates information from multiple sources (Teams, Outlook, Obsidian, JIRA, Apple Notes) into a unified knowledge engine, enabling semantic search, knowledge graph exploration, and AI-powered chat.
 
 ## 2. High-Level Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│              Electron Shell (Main Process — Node.js)             │
+│   Window Management │ System Tray │ Backend Lifecycle │ IPC      │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │              Presentation Layer (Renderer)                 │  │
+│  │          TypeScript / React / Tailwind / shadcn/ui         │  │
+│  │  ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐ ┌─────────┐  │  │
+│  │  │Dashbrd │ │  Chat  │ │ Search │ │ Graph  │ │Settings │  │  │
+│  │  └────────┘ └────────┘ └────────┘ └────────┘ └─────────┘  │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐  │
+│  │           Child Process (FastAPI / uvicorn)                │  │
+│  │           Spawned and managed by main process              │  │
+│  └────────────────────────────────────────────────────────────┘  │
+└───────────────────────┬──────────────────────────────────────────┘
+                        │ HTTP REST + WebSocket (127.0.0.1)
+
+Note: When running as a web app (npm run dev), the Electron shell is
+absent and the browser connects to the FastAPI server directly.
+```
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -156,13 +180,20 @@ Notification (if new connections/contradictions found)
 
 ### 4.1 Startup Sequence
 
+**Electron desktop mode:**
+0. Electron main process starts; spawns `uvicorn nexuspkm.main:app` as a child process, then polls `GET /health` until healthy (timeout 10s). Shows splash screen while waiting.
+
+**FastAPI server startup (steps 1–7, regardless of how uvicorn was launched):**
 1. Load configuration (`config/providers.yaml`, `config/connectors.yaml`)
 2. Initialize LLM provider registry, run health checks
 3. Initialize LanceDB and Kuzu databases
 4. Initialize LlamaIndex PropertyGraphIndex
 5. Start connector sync scheduler (APScheduler)
 6. Start FastAPI server (uvicorn)
-7. Serve frontend static files
+7. Serve frontend static files (web mode) — in Electron mode, renderer loads built files via `file://`
+
+**Electron post-backend-ready:**
+8. Main process receives healthy response from `/health`; hides splash, loads renderer URL
 
 ### 4.2 Key Component Dependencies
 
@@ -259,17 +290,30 @@ NEXUSPKM_LOG_LEVEL (default: INFO)
 
 ## 8. Deployment Model
 
-### 8.1 Local Development / Production (Same)
+### 8.1 Deployment Options
+
+**Production (Electron .dmg installer — primary):**
 ```bash
-# Backend
+cd frontend && npm run electron:dist
+# Produces release/NexusPKM-{version}.dmg
+# Double-click to install; app manages backend lifecycle automatically
+```
+
+**Development (Electron with HMR):**
+```bash
+cd frontend && npm run electron:dev
+# electron-vite starts Vite dev server + Electron main process
+# Backend spawned automatically; renderer HMR enabled
+```
+
+**Development (web browser — unchanged fallback):**
+```bash
+# Terminal 1
 cd backend && uvicorn nexuspkm.main:app --host 127.0.0.1 --port 8000
 
-# Frontend (development)
+# Terminal 2
 cd frontend && npm run dev
-
-# Frontend (production)
-cd frontend && npm run build
-# Served as static files by FastAPI
+# Open http://localhost:5173 in browser
 ```
 
 ### 8.2 Future: Docker Compose
@@ -289,6 +333,7 @@ services:
 
 | Layer | Technology | Purpose |
 |---|---|---|
+| Desktop Shell | Electron, electron-vite, electron-builder | Native wrapper, backend lifecycle, tray |
 | Frontend | React, TypeScript, Tailwind, shadcn/ui, Vite | UI |
 | API | FastAPI, Uvicorn, Pydantic | REST + WebSocket |
 | Orchestration | LlamaIndex | RAG pipeline, PropertyGraphIndex |
