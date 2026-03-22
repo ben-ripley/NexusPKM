@@ -7,7 +7,7 @@
  */
 
 import type { BackendStatus } from '../../electron/notification-utils'
-import type { AppPreferences } from '../../electron/preferences'
+import type { AppPreferences } from '../../electron/notification-utils'
 
 interface ElectronAPI {
   /** The OS platform string (e.g. 'darwin', 'win32'). */

@@ -17,32 +17,32 @@ describe('loadPreferences', () => {
     fs.rmSync(tmpDir, { recursive: true })
   })
 
-  it('returns defaults when file does not exist', () => {
-    expect(loadPreferences(tmpDir)).toEqual({ autoLaunch: false, closeToTray: true })
+  it('returns defaults when file does not exist', async () => {
+    await expect(loadPreferences(tmpDir)).resolves.toEqual({ autoLaunch: false, closeToTray: true })
   })
 
-  it('returns stored preferences when file exists', () => {
+  it('returns stored preferences when file exists', async () => {
     const stored: AppPreferences = { autoLaunch: true, closeToTray: false }
     fs.writeFileSync(path.join(tmpDir, 'preferences.json'), JSON.stringify(stored))
-    expect(loadPreferences(tmpDir)).toEqual(stored)
+    await expect(loadPreferences(tmpDir)).resolves.toEqual(stored)
   })
 
-  it('falls back to defaults for fields with non-boolean values', () => {
+  it('falls back to defaults for fields with non-boolean values', async () => {
     fs.writeFileSync(
       path.join(tmpDir, 'preferences.json'),
       JSON.stringify({ autoLaunch: 'yes', closeToTray: 1 }),
     )
-    expect(loadPreferences(tmpDir)).toEqual({ autoLaunch: false, closeToTray: true })
+    await expect(loadPreferences(tmpDir)).resolves.toEqual({ autoLaunch: false, closeToTray: true })
   })
 
-  it('falls back to defaults when file contains invalid JSON', () => {
+  it('falls back to defaults when file contains invalid JSON', async () => {
     fs.writeFileSync(path.join(tmpDir, 'preferences.json'), 'not valid json')
-    expect(loadPreferences(tmpDir)).toEqual({ autoLaunch: false, closeToTray: true })
+    await expect(loadPreferences(tmpDir)).resolves.toEqual({ autoLaunch: false, closeToTray: true })
   })
 
-  it('falls back per-field when only some fields are present', () => {
+  it('falls back per-field when only some fields are present', async () => {
     fs.writeFileSync(path.join(tmpDir, 'preferences.json'), JSON.stringify({ autoLaunch: true }))
-    expect(loadPreferences(tmpDir)).toEqual({ autoLaunch: true, closeToTray: true })
+    await expect(loadPreferences(tmpDir)).resolves.toEqual({ autoLaunch: true, closeToTray: true })
   })
 })
 
@@ -57,15 +57,24 @@ describe('savePreferences', () => {
     fs.rmSync(tmpDir, { recursive: true })
   })
 
-  it('writes preferences that can be read back', () => {
+  it('writes preferences that can be read back and returns true', async () => {
     const prefs: AppPreferences = { autoLaunch: true, closeToTray: false }
-    savePreferences(tmpDir, prefs)
-    expect(loadPreferences(tmpDir)).toEqual(prefs)
+    const saved = await savePreferences(tmpDir, prefs)
+    expect(saved).toBe(true)
+    await expect(loadPreferences(tmpDir)).resolves.toEqual(prefs)
   })
 
-  it('overwrites an existing preferences file', () => {
-    savePreferences(tmpDir, { autoLaunch: false, closeToTray: true })
-    savePreferences(tmpDir, { autoLaunch: true, closeToTray: false })
-    expect(loadPreferences(tmpDir)).toEqual({ autoLaunch: true, closeToTray: false })
+  it('overwrites an existing preferences file', async () => {
+    await savePreferences(tmpDir, { autoLaunch: false, closeToTray: true })
+    await savePreferences(tmpDir, { autoLaunch: true, closeToTray: false })
+    await expect(loadPreferences(tmpDir)).resolves.toEqual({ autoLaunch: true, closeToTray: false })
+  })
+
+  it('returns false and does not throw when the directory does not exist', async () => {
+    const result = await savePreferences('/nonexistent/path/that/does/not/exist', {
+      autoLaunch: false,
+      closeToTray: true,
+    })
+    expect(result).toBe(false)
   })
 })

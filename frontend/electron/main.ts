@@ -2,7 +2,12 @@ import { app, BrowserWindow, dialog, globalShortcut, type Tray } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'path'
 import { handleBackendExit, isPortInUse, waitForHealth } from './backend-lifecycle'
-import { broadcastBackendStatus, getCurrentPreferences, registerIpcHandlers } from './ipc-handlers'
+import {
+  broadcastBackendStatus,
+  getCurrentPreferences,
+  initPreferences,
+  registerIpcHandlers,
+} from './ipc-handlers'
 import { createTray } from './tray'
 import { setupCloseToTray, showAndFocusWindow } from './window-manager'
 
@@ -149,6 +154,7 @@ app
   .whenReady()
   .then(async () => {
     registerIpcHandlers()
+    await initPreferences()
 
     const inUse = await isPortInUse(BACKEND_PORT)
     if (inUse) {

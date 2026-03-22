@@ -1,25 +1,41 @@
 import { app, BrowserWindow, ipcMain, Notification } from 'electron'
-import { sanitizeNotification, type BackendStatus } from './notification-utils'
-import { loadPreferences, savePreferences, type AppPreferences } from './preferences'
+import {
+  sanitizeNotification,
+  DEFAULT_PREFERENCES,
+  type BackendStatus,
+  type AppPreferences,
+} from './notification-utils'
+import { loadPreferences, savePreferences } from './preferences'
 
 let currentBackendStatus: BackendStatus = 'starting'
 let preferencesCache: AppPreferences | null = null
 
 const VALID_PREFERENCE_KEYS: readonly (keyof AppPreferences)[] = ['autoLaunch', 'closeToTray']
 
-function getPreferencesFromCache(): AppPreferences {
+async function getPreferencesFromCache(): Promise<AppPreferences> {
   if (preferencesCache === null) {
-    preferencesCache = loadPreferences(app.getPath('userData'))
+    preferencesCache = await loadPreferences(app.getPath('userData'))
   }
   return preferencesCache
 }
 
 /**
- * Returns the current in-memory preferences (loading from disk on first call).
- * Use this in main.ts to read preferences without going through IPC.
+ * Returns the current in-memory preferences, or defaults if not yet loaded.
+ * Preferences are pre-loaded during startup via initPreferences(), so this
+ * will return the correct value in all normal operation paths.
  */
 export function getCurrentPreferences(): AppPreferences {
-  return getPreferencesFromCache()
+  return preferencesCache ?? DEFAULT_PREFERENCES
+}
+
+/**
+ * Pre-loads preferences from disk into the in-memory cache.
+ * Call once after registerIpcHandlers() during app startup so that
+ * getCurrentPreferences() returns the persisted values before the first
+ * IPC call arrives.
+ */
+export async function initPreferences(): Promise<void> {
+  await getPreferencesFromCache()
 }
 
 /**
@@ -56,14 +72,19 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('get-preferences', () => getPreferencesFromCache())
 
-  ipcMain.handle('set-preference', (_event, key: unknown, value: unknown) => {
+  ipcMain.handle('set-preference', async (_event, key: unknown, value: unknown) => {
     if (typeof key !== 'string' || typeof value !== 'boolean') return
     if (!VALID_PREFERENCE_KEYS.includes(key as keyof AppPreferences)) return
-    const updated: AppPreferences = { ...getPreferencesFromCache(), [key]: value }
-    savePreferences(app.getPath('userData'), updated)
-    preferencesCache = updated
-    if (key === 'autoLaunch') {
-      app.setLoginItemSettings({ openAtLogin: value })
+    const current = await getPreferencesFromCache()
+    const updated: AppPreferences = { ...current, [key]: value }
+    // Save to disk first; only update the in-memory cache if the write succeeds
+    // to keep the cache consistent with the persisted state.
+    const saved = await savePreferences(app.getPath('userData'), updated)
+    if (saved) {
+      preferencesCache = updated
+      if (key === 'autoLaunch') {
+        app.setLoginItemSettings({ openAtLogin: value })
+      }
     }
   })
 
