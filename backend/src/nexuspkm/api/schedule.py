@@ -51,11 +51,11 @@ def get_schedule_service() -> ScheduleService:
 @router.get("/digest", response_model=DailyDigest)
 async def get_digest(
     service: Annotated[ScheduleService, Depends(get_schedule_service)],
-    date: date | None = None,
+    for_date: date | None = None,
 ) -> DailyDigest:
     """Generate the daily digest, optionally for a specific date."""
-    log.info("schedule.digest_requested", date=str(date))
-    return await service.get_daily_digest(for_date=date)
+    log.info("schedule.digest_requested", date=str(for_date))
+    return await service.get_daily_digest(for_date=for_date)
 
 
 # ---------------------------------------------------------------------------

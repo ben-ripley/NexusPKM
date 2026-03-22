@@ -59,19 +59,35 @@ class ScheduleService:
     async def get_daily_digest(self, for_date: date | None = None) -> DailyDigest:
         loop = asyncio.get_running_loop()
         target = for_date or date.today()
-        return await loop.run_in_executor(None, self._build_digest_sync, target)
+        try:
+            return await loop.run_in_executor(None, self._build_digest_sync, target)
+        except Exception:
+            log.exception("schedule.digest_error", date=str(target))
+            raise
 
     async def get_prioritized_action_items(self) -> list[PrioritizedItem]:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._build_prioritized_items_sync)
+        try:
+            return await loop.run_in_executor(None, self._build_prioritized_items_sync)
+        except Exception:
+            log.exception("schedule.action_items_error")
+            raise
 
     async def get_team_workload(self) -> TeamWorkload:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._build_team_workload_sync)
+        try:
+            return await loop.run_in_executor(None, self._build_team_workload_sync)
+        except Exception:
+            log.exception("schedule.team_workload_error")
+            raise
 
     async def get_overlaps(self) -> list[OverlapAlert]:
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(None, self._detect_overlaps_sync)
+        try:
+            return await loop.run_in_executor(None, self._detect_overlaps_sync)
+        except Exception:
+            log.exception("schedule.overlaps_error")
+            raise
 
     # ------------------------------------------------------------------
     # Scoring helpers (internal but public for direct unit testing)
@@ -173,23 +189,31 @@ class ScheduleService:
 
     def _build_team_workload_sync(self) -> TeamWorkload:
         """Calculate per-person workload from the graph."""
+        now = datetime.now(tz=UTC)
+
         # Fetch all persons
         person_rows = self._graph.execute(
             "MATCH (p:Person) RETURN p.id AS id, p.name AS name, p.email AS email"
         )
 
-        # Count open action items per person
-        ai_rows = self._graph.execute(
+        # Single query: open action items with assignee, ordered for deterministic top-items.
+        # Returns one row per (action_item, person) pair so we get both count and item IDs.
+        assigned_rows = self._graph.execute(
             "MATCH (a:ActionItem)-[:ASSIGNED_TO]->(p:Person) "
             "WHERE a.status = 'open' "
-            "RETURN p.id AS person_id, count(a) AS open_count"
+            "RETURN a.id AS action_id, p.id AS person_id"
         )
-        ai_by_person: dict[str, int] = {r["person_id"]: int(r["open_count"]) for r in ai_rows}
+        items_by_person: dict[str, list[str]] = defaultdict(list)
+        ai_by_person: dict[str, int] = defaultdict(int)
+        for r in assigned_rows:
+            pid = r["person_id"]
+            items_by_person[pid].append(r["action_id"])
+            ai_by_person[pid] += 1
 
-        # Count meetings this week per person
-        week_start = datetime.now(tz=UTC).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ) - timedelta(days=datetime.now(tz=UTC).weekday())
+        # Count meetings this week per person (single now reference)
+        week_start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+            days=now.weekday()
+        )
         week_end = week_start + timedelta(days=7)
         meeting_rows = self._graph.execute(
             "MATCH (p:Person)-[:ATTENDED]->(m:Meeting) "
@@ -201,19 +225,7 @@ class ScheduleService:
             r["person_id"]: int(r["meeting_count"]) for r in meeting_rows
         }
 
-        # Fetch top prioritized items for each person (reuse sync method)
         all_items = self._build_prioritized_items_sync()
-
-        # Build assignee → items map using ASSIGNED_TO relationships
-        assigned_rows = self._graph.execute(
-            "MATCH (a:ActionItem)-[:ASSIGNED_TO]->(p:Person) "
-            "WHERE a.status = 'open' "
-            "RETURN a.id AS action_id, p.id AS person_id"
-        )
-        items_by_person: dict[str, list[str]] = defaultdict(list)
-        for r in assigned_rows:
-            items_by_person[r["person_id"]].append(r["action_id"])
-
         items_index: dict[str, PrioritizedItem] = {i.entity_id: i for i in all_items}
 
         members: list[MemberWorkload] = []
@@ -225,10 +237,13 @@ class ScheduleService:
                 open_count * _WORKLOAD_ACTION_ITEM_WEIGHT + meeting_count * _WORKLOAD_MEETING_WEIGHT
             )
             score = min(100.0, raw_score)
+            # Sort top items by descending priority score for the member's assigned items
             top_ids = items_by_person.get(pid, [])
-            top_items = [items_index[aid] for aid in top_ids if aid in items_index][
-                :_TOP_ITEMS_PER_MEMBER
-            ]
+            top_items = sorted(
+                (items_index[aid] for aid in top_ids if aid in items_index),
+                key=lambda x: x.priority_score,
+                reverse=True,
+            )[:_TOP_ITEMS_PER_MEMBER]
 
             members.append(
                 MemberWorkload(

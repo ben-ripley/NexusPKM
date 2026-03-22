@@ -82,13 +82,18 @@ def test_digest_returns_200(client: TestClient) -> None:
     assert "generated_at" in data
 
 
-def test_digest_with_date_param(client: TestClient) -> None:
-    response = client.get("/api/schedule/digest?date=2026-03-21")
-    assert response.status_code == 200
+def test_digest_with_date_param(mock_service: MagicMock) -> None:
+    app.dependency_overrides[get_schedule_service] = lambda: mock_service
+    try:
+        response = TestClient(app).get("/api/schedule/digest?for_date=2026-03-21")
+        assert response.status_code == 200
+        mock_service.get_daily_digest.assert_called_once_with(for_date=date(2026, 3, 21))
+    finally:
+        app.dependency_overrides.pop(get_schedule_service, None)
 
 
 def test_digest_invalid_date_returns_422(client: TestClient) -> None:
-    response = client.get("/api/schedule/digest?date=not-a-date")
+    response = client.get("/api/schedule/digest?for_date=not-a-date")
     assert response.status_code == 422
 
 
@@ -202,10 +207,11 @@ def test_overlaps_with_alerts(mock_service: MagicMock) -> None:
 
 
 def test_503_when_schedule_service_unavailable() -> None:
-    saved = dict(app.dependency_overrides)
+    # Ensure get_schedule_service raises 503 when not overridden
     app.dependency_overrides.pop(get_schedule_service, None)
     try:
         response = TestClient(app).get("/api/schedule/digest")
         assert response.status_code == 503
     finally:
-        app.dependency_overrides.update(saved)
+        # No override was set, so nothing to restore
+        pass
