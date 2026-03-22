@@ -5,6 +5,7 @@ import {
   fetchUnreadCount,
   markNotificationRead,
   dismissNotification,
+  resolveContradiction,
   fetchNotificationPreferences,
   updateNotificationPreferences,
 } from '@/services/api'
@@ -59,6 +60,19 @@ export function useDismiss() {
     mutationFn: dismissNotification,
     onSuccess: (_data, id) => {
       dismiss(id)
+      queryClient.invalidateQueries({ queryKey: UNREAD_COUNT_KEY })
+    },
+  })
+}
+
+export function useResolveContradiction() {
+  const dismiss = useNotificationsStore((s) => s.dismiss)
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: resolveContradiction,
+    onSuccess: (_data, contradictionId) => {
+      // Dismiss the associated notification (id pattern: "contradiction_{contradictionId}")
+      dismiss(`contradiction_${contradictionId}`)
       queryClient.invalidateQueries({ queryKey: UNREAD_COUNT_KEY })
     },
   })

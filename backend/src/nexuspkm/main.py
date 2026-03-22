@@ -207,6 +207,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         intervals["obsidian"] = config.connectors.obsidian.sync_interval_minutes * 60
         _vault = _obsidian_connector.vault_path
         app.dependency_overrides[search_get_obsidian_vault_path] = lambda: _vault
+        if _proactive_service is not None:
+            _proactive_service.obsidian_vault_path = _vault
         log.info("obsidian_connector_registered")
 
     # Run startup health checks so the UI shows real status before the first

@@ -54,6 +54,7 @@ def _make_document(doc_id: str = "doc-1", title: str = "Test Doc") -> Document:
 def mock_graph() -> MagicMock:
     mock = MagicMock(spec=GraphStore)
     mock.get_entity_label.return_value = None
+    mock.get_document.return_value = None
     return mock
 
 
@@ -472,6 +473,148 @@ async def test_poll_contradictions_truncates_long_entity_name(
     # truncated name should be 37 chars + "..."
     assert long_name[:37] in title
     assert long_name not in title  # full 60-char name must not appear
+
+
+@pytest.mark.asyncio
+async def test_poll_contradictions_includes_source_type_when_document_found(
+    service: ProactiveService,
+) -> None:
+    from nexuspkm.engine.graph_store import DocumentNode
+    from nexuspkm.models.contradiction import Contradiction, ContradictionType
+
+    contradiction = Contradiction(
+        id="c-src-1",
+        entity_id="e-1",
+        field_name="status",
+        old_value="open",
+        new_value="closed",
+        source_doc_id="doc-qc",
+        detected_at=datetime.now(tz=UTC),
+        contradiction_type=ContradictionType.STATUS_CONFLICT,
+    )
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[contradiction])
+    service._graph.get_document = MagicMock(
+        return_value=DocumentNode(
+            id="doc-qc",
+            title="Quebec City.md",
+            source_type="obsidian_note",
+            source_id="Photography/Quebec City.md",
+        )
+    )
+
+    await service.poll_contradictions(mock_detector)
+
+    notifications = await service.list_notifications()
+    assert len(notifications) == 1
+    data = notifications[0].data
+    assert data["source_type"] == "obsidian_note"
+    assert data["source_title"] == "Quebec City.md"
+    assert data["source_id"] == "Photography/Quebec City.md"
+
+
+@pytest.mark.asyncio
+async def test_poll_contradictions_builds_obsidian_url_when_vault_set(
+    service: ProactiveService,
+) -> None:
+    from nexuspkm.engine.graph_store import DocumentNode
+    from nexuspkm.models.contradiction import Contradiction, ContradictionType
+
+    service.obsidian_vault_path = Path("/vault")
+
+    contradiction = Contradiction(
+        id="c-url-1",
+        entity_id="e-1",
+        field_name="status",
+        old_value="open",
+        new_value="closed",
+        source_doc_id="doc-qc",
+        detected_at=datetime.now(tz=UTC),
+        contradiction_type=ContradictionType.STATUS_CONFLICT,
+    )
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[contradiction])
+    service._graph.get_document = MagicMock(
+        return_value=DocumentNode(
+            id="doc-qc",
+            title="Quebec City.md",
+            source_type="obsidian_note",
+            source_id="Photography/Quebec City.md",
+        )
+    )
+
+    await service.poll_contradictions(mock_detector)
+
+    notifications = await service.list_notifications()
+    data = notifications[0].data
+    assert "source_url" in data
+    assert str(data["source_url"]).startswith("obsidian://open?path=")
+
+
+@pytest.mark.asyncio
+async def test_poll_contradictions_no_source_url_without_vault_path(
+    service: ProactiveService,
+) -> None:
+    from nexuspkm.engine.graph_store import DocumentNode
+    from nexuspkm.models.contradiction import Contradiction, ContradictionType
+
+    # vault path is None (default)
+    assert service.obsidian_vault_path is None
+
+    contradiction = Contradiction(
+        id="c-novault-1",
+        entity_id="e-1",
+        field_name="status",
+        old_value="open",
+        new_value="closed",
+        source_doc_id="doc-qc",
+        detected_at=datetime.now(tz=UTC),
+        contradiction_type=ContradictionType.STATUS_CONFLICT,
+    )
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[contradiction])
+    service._graph.get_document = MagicMock(
+        return_value=DocumentNode(
+            id="doc-qc",
+            title="Quebec City.md",
+            source_type="obsidian_note",
+            source_id="Photography/Quebec City.md",
+        )
+    )
+
+    await service.poll_contradictions(mock_detector)
+
+    notifications = await service.list_notifications()
+    data = notifications[0].data
+    assert "source_url" not in data
+
+
+@pytest.mark.asyncio
+async def test_poll_contradictions_no_source_info_when_document_not_found(
+    service: ProactiveService,
+) -> None:
+    from nexuspkm.models.contradiction import Contradiction, ContradictionType
+
+    contradiction = Contradiction(
+        id="c-nodoc-1",
+        entity_id="e-1",
+        field_name="status",
+        old_value="open",
+        new_value="closed",
+        source_doc_id="nonexistent-doc",
+        detected_at=datetime.now(tz=UTC),
+        contradiction_type=ContradictionType.STATUS_CONFLICT,
+    )
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[contradiction])
+    # get_document returns None (default from fixture)
+
+    await service.poll_contradictions(mock_detector)
+
+    notifications = await service.list_notifications()
+    data = notifications[0].data
+    assert "source_type" not in data
+    assert "source_url" not in data
 
 
 @pytest.mark.asyncio

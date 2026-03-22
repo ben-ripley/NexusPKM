@@ -138,6 +138,8 @@ class ProactiveService:
         self._scheduler: AsyncIOScheduler | None = None
         self._contradiction_detector: ContradictionDetector | None = None
         self.ws_manager = NotificationWSManager()
+        # Set by main.py after the Obsidian connector is registered.
+        self.obsidian_vault_path: Path | None = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -376,6 +378,14 @@ class ProactiveService:
     # Contradiction notification bridging
     # ------------------------------------------------------------------
 
+    def _build_source_url(self, source_type: str, source_id: str) -> str | None:
+        import urllib.parse
+
+        if source_type == "obsidian_note" and self.obsidian_vault_path is not None:
+            abs_path = str(self.obsidian_vault_path / source_id)
+            return "obsidian://open?path=" + urllib.parse.quote(abs_path, safe="")
+        return None
+
     async def poll_contradictions(self, detector: ContradictionDetector) -> None:
         """Create CONTRADICTION notifications for any unresolved contradictions without one."""
         prefs = await self.get_preferences()
@@ -402,17 +412,30 @@ class ProactiveService:
             else:
                 title = f"Contradiction: '{c.field_name}' on unknown entity"
 
+            source_doc = await loop.run_in_executor(
+                None, self._graph.get_document, c.source_doc_id
+            )
+
+            data: dict[str, object] = {
+                "contradiction_id": c.id,
+                "entity_id": c.entity_id,
+                "field_name": c.field_name,
+            }
+            if source_doc:
+                data["source_type"] = source_doc.source_type
+                data["source_id"] = source_doc.source_id
+                data["source_title"] = source_doc.title
+                source_url = self._build_source_url(source_doc.source_type, source_doc.source_id)
+                if source_url:
+                    data["source_url"] = source_url
+
             notif = Notification(
                 id=notif_id,
                 type=NotificationType.CONTRADICTION,
                 title=title,
                 summary=(f"Field '{c.field_name}' changed from '{c.old_value}' to '{c.new_value}'"),
                 priority=NotificationPriority.MEDIUM,
-                data={
-                    "contradiction_id": c.id,
-                    "entity_id": c.entity_id,
-                    "field_name": c.field_name,
-                },
+                data=data,
                 created_at=datetime.now(tz=UTC),
             )
             await self.save_notification(notif)

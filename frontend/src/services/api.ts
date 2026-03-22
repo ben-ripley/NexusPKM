@@ -382,6 +382,14 @@ export async function fetchNotificationPreferences(): Promise<NotificationPrefer
   return NotificationPreferencesSchema.parse(await res.json())
 }
 
+export async function resolveContradiction(contradictionId: string): Promise<void> {
+  const res = await fetch(
+    `${API}/api/contradictions/${encodeURIComponent(contradictionId)}/resolve`,
+    { method: 'POST' }
+  )
+  if (!res.ok) throw new Error(`Failed to resolve contradiction: ${res.status}`)
+}
+
 export async function updateNotificationPreferences(
   prefs: NotificationPreferences
 ): Promise<NotificationPreferences> {
