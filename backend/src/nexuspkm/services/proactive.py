@@ -15,7 +15,6 @@ NXP-87
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import sqlite3
 from collections import defaultdict
@@ -144,8 +143,16 @@ class ProactiveService:
             conn.executescript(_NOTIFICATIONS_DDL)
             conn.executescript(_PREFERENCES_DDL)
             for stmt in _PREFERENCES_MIGRATION_V2:
-                with contextlib.suppress(sqlite3.OperationalError):
+                try:
                     conn.execute(stmt)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        logger.warning(
+                            "proactive.schema_migration_error",
+                            stmt=stmt,
+                            error=str(exc),
+                        )
+                        raise
 
     def start_scanner(
         self,
@@ -585,17 +592,18 @@ class ProactiveService:
             row = conn.execute("SELECT * FROM notification_preferences WHERE id=1").fetchone()
         if row is None:
             return NotificationPreferences()
+        r = dict(row)
         return NotificationPreferences(
-            meeting_prep_enabled=bool(row["meeting_prep_enabled"]),
-            meeting_prep_lead_time_minutes=int(row["meeting_prep_lead_time_minutes"]),
-            related_content_enabled=bool(row["related_content_enabled"]),
-            related_content_threshold=float(row["related_content_threshold"]),
-            contradiction_alerts_enabled=bool(row["contradiction_alerts_enabled"]),
-            webhook_url=row["webhook_url"],
-            webhook_url_meeting_prep=row["webhook_url_meeting_prep"],
-            webhook_url_related_content=row["webhook_url_related_content"],
-            webhook_url_contradiction=row["webhook_url_contradiction"],
-            webhook_url_insight=row["webhook_url_insight"],
+            meeting_prep_enabled=bool(r["meeting_prep_enabled"]),
+            meeting_prep_lead_time_minutes=int(r["meeting_prep_lead_time_minutes"]),
+            related_content_enabled=bool(r["related_content_enabled"]),
+            related_content_threshold=float(r["related_content_threshold"]),
+            contradiction_alerts_enabled=bool(r["contradiction_alerts_enabled"]),
+            webhook_url=r.get("webhook_url"),
+            webhook_url_meeting_prep=r.get("webhook_url_meeting_prep"),
+            webhook_url_related_content=r.get("webhook_url_related_content"),
+            webhook_url_contradiction=r.get("webhook_url_contradiction"),
+            webhook_url_insight=r.get("webhook_url_insight"),
         )
 
     async def save_preferences(self, prefs: NotificationPreferences) -> None:

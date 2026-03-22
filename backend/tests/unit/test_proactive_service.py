@@ -642,3 +642,58 @@ async def test_webhook_per_type_defaults_to_none(service: ProactiveService) -> N
     assert prefs.webhook_url_related_content is None
     assert prefs.webhook_url_contradiction is None
     assert prefs.webhook_url_insight is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_schema_migration_from_old_db(
+    mock_graph: MagicMock,
+    mock_llm: MagicMock,
+    db_path: Path,
+) -> None:
+    """Init migrates an existing DB that lacks the per-type webhook columns."""
+    import sqlite3
+
+    # Create old-schema DB (no per-type webhook columns)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            "CREATE TABLE notification_preferences ("
+            "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+            "  meeting_prep_enabled INTEGER NOT NULL DEFAULT 1,"
+            "  meeting_prep_lead_time_minutes INTEGER NOT NULL DEFAULT 60,"
+            "  related_content_enabled INTEGER NOT NULL DEFAULT 1,"
+            "  related_content_threshold REAL NOT NULL DEFAULT 0.7,"
+            "  contradiction_alerts_enabled INTEGER NOT NULL DEFAULT 1,"
+            "  webhook_url TEXT"
+            ");"
+            "INSERT INTO notification_preferences (id) VALUES (1);"
+        )
+        conn.executescript(
+            "CREATE TABLE IF NOT EXISTS notifications ("
+            "  id TEXT PRIMARY KEY,"
+            "  type TEXT NOT NULL,"
+            "  title TEXT NOT NULL,"
+            "  summary TEXT NOT NULL,"
+            "  priority TEXT NOT NULL,"
+            "  data TEXT NOT NULL DEFAULT '{}',"
+            "  read INTEGER NOT NULL DEFAULT 0,"
+            "  created_at TEXT NOT NULL"
+            ");"
+        )
+
+    # init() should migrate without error
+    svc = ProactiveService(mock_graph, mock_llm, db_path)
+    await svc.init()
+
+    # Per-type fields should now be readable and default to None
+    prefs = await svc.get_preferences()
+    assert prefs.webhook_url_meeting_prep is None
+    assert prefs.webhook_url_related_content is None
+    assert prefs.webhook_url_contradiction is None
+    assert prefs.webhook_url_insight is None
+
+    # Save and reload with per-type URLs to confirm the columns are writable
+    updated = NotificationPreferences(webhook_url_meeting_prep="https://meeting.example.com/hook")
+    await svc.save_preferences(updated)
+    loaded = await svc.get_preferences()
+    assert loaded.webhook_url_meeting_prep == "https://meeting.example.com/hook"
