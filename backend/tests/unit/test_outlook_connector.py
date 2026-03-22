@@ -585,3 +585,67 @@ class TestFetchDeletedIds:
         connector = _make_connector(tmp_path)
         ids = await connector.fetch_deleted_ids()
         assert ids == []
+
+
+# ---------------------------------------------------------------------------
+# TestEmailLookbackDate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestEmailLookbackDate:
+    async def test_lookback_date_adds_filter_param_on_initial_sync(
+        self, tmp_path: Path
+    ) -> None:
+        """$filter is added to the initial delta request when email_lookback_date is set."""
+        connector = _make_connector(tmp_path, email_lookback_date="2024-01-01")
+
+        captured_params: dict[str, str] = {}
+
+        async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
+            if "/delta" in url and kwargs.get("params"):
+                captured_params.update(kwargs["params"])  # type: ignore[arg-type]
+            return _make_response(200, json_body={"value": [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=tok"})
+
+        with patch.object(connector, "_request_with_retry", side_effect=fake_request):
+            await connector._list_emails_delta(MagicMock(), "token", delta_token=None)
+
+        assert "$filter" in captured_params
+        assert "2024-01-01T00:00:00Z" in captured_params["$filter"]
+        assert "receivedDateTime ge" in captured_params["$filter"]
+
+    async def test_lookback_date_not_applied_on_incremental_sync(
+        self, tmp_path: Path
+    ) -> None:
+        """$filter is NOT added when a delta token exists (incremental sync)."""
+        connector = _make_connector(tmp_path, email_lookback_date="2024-01-01")
+
+        captured_params: dict[str, str] = {}
+
+        async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
+            if kwargs.get("params"):
+                captured_params.update(kwargs["params"])  # type: ignore[arg-type]
+            return _make_response(200, json_body={"value": [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=newtok"})
+
+        with patch.object(connector, "_request_with_retry", side_effect=fake_request):
+            await connector._list_emails_delta(
+                MagicMock(), "token", delta_token="existing-token"
+            )
+
+        assert "$filter" not in captured_params
+
+    async def test_no_filter_when_lookback_date_not_set(self, tmp_path: Path) -> None:
+        """No $filter is added when email_lookback_date is None."""
+        connector = _make_connector(tmp_path)  # email_lookback_date defaults to None
+
+        captured_params: dict[str, str] = {}
+
+        async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
+            if "/delta" in url and kwargs.get("params"):
+                captured_params.update(kwargs["params"])  # type: ignore[arg-type]
+            return _make_response(200, json_body={"value": [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=tok"})
+
+        with patch.object(connector, "_request_with_retry", side_effect=fake_request):
+            await connector._list_emails_delta(MagicMock(), "token", delta_token=None)
+
+        assert "$filter" not in captured_params

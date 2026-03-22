@@ -13,6 +13,9 @@ outlook:
   folders:
     - Inbox
     - Sent Items
+  # Only fetch emails on or after this date on the initial sync (server-side filter).
+  # Recommended: set to a date 1-3 years back to avoid ingesting your entire mailbox.
+  # email_lookback_date: "2024-01-01"
   # MS Graph credentials shared with Teams connector
 
 obsidian:

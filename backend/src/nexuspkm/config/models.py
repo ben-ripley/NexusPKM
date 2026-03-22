@@ -147,7 +147,9 @@ class OutlookConnectorConfig(BaseModel):
     folders: list[str] = Field(default_factory=lambda: ["Inbox", "Sent Items"])
     exclude_folders: list[str] = Field(default_factory=lambda: ["Junk Email", "Deleted Items"])
     sender_domains: list[str] = Field(default_factory=list)  # empty = allow all
-    date_from: str | None = None  # ISO date string "YYYY-MM-DD"
+    date_from: str | None = None  # ISO date string "YYYY-MM-DD" (client-side filter)
+    # ISO date "YYYY-MM-DD" — server-side $filter on initial sync; no effect on incremental syncs.
+    email_lookback_date: str | None = None
     max_emails_per_sync: int = Field(default=500, gt=0)
     calendar_window_days: int = Field(default=30, gt=0)  # past + future days
 

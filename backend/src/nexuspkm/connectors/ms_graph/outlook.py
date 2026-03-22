@@ -295,6 +295,10 @@ class OutlookConnector(BaseConnector):
                     "parentFolderId,isRead"
                 ),
             }
+            if self._config.email_lookback_date:
+                params["$filter"] = (
+                    f"receivedDateTime ge {self._config.email_lookback_date}T00:00:00Z"
+                )
 
         all_emails: list[dict[str, object]] = []
         deleted_conv_ids: list[str] = []
