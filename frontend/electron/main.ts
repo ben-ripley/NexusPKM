@@ -1,12 +1,14 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'path'
 import { isPortInUse, waitForHealth } from './backend-lifecycle'
 
 const BACKEND_PORT = parseInt(process.env['NEXUSPKM_BACKEND_PORT'] ?? '8000', 10)
 const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/health`
-const BACKEND_TIMEOUT_MS = 30_000
+const BACKEND_TIMEOUT_MS = 10_000
 const BACKEND_TIMEOUT_S = BACKEND_TIMEOUT_MS / 1000
+
+type BackendStatus = 'starting' | 'healthy' | 'error' | 'stopped'
 
 let backendProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
@@ -14,6 +16,13 @@ let isShuttingDown = false
 
 function getPreloadPath(): string {
   return path.join(__dirname, '../preload/index.js')
+}
+
+/** Broadcast a backend lifecycle status to all open renderer windows. */
+function broadcastBackendStatus(status: BackendStatus): void {
+  for (const win of BrowserWindow.getAllWindows()) {
+    win.webContents.send('backend-status', status)
+  }
 }
 
 async function createSplashWindow(): Promise<BrowserWindow> {
@@ -95,6 +104,15 @@ function spawnBackend(): ChildProcess {
     process.stderr.write(`[backend] ${data.toString()}`)
   })
 
+  // Notify renderer if the backend exits unexpectedly after startup
+  proc.once('exit', (code) => {
+    if (!isShuttingDown) {
+      process.stderr.write(`[main] Backend exited unexpectedly with code ${String(code)}\n`)
+      backendProcess = null
+      broadcastBackendStatus('stopped')
+    }
+  })
+
   return proc
 }
 
@@ -128,6 +146,13 @@ async function shutdownBackend(): Promise<void> {
   backendProcess = null
 }
 
+// Handle renderer requests for native notifications
+ipcMain.on('notify', (_event, title: string, body: string) => {
+  if (Notification.isSupported()) {
+    new Notification({ title, body }).show()
+  }
+})
+
 app
   .whenReady()
   .then(async () => {
@@ -145,10 +170,12 @@ app
 
     const splash = await createSplashWindow()
     backendProcess = spawnBackend()
+    broadcastBackendStatus('starting')
 
     try {
       await waitForHealth(HEALTH_URL, BACKEND_TIMEOUT_MS)
     } catch {
+      broadcastBackendStatus('error')
       splash.close()
       await dialog.showMessageBox({
         type: 'error',
@@ -164,6 +191,7 @@ app
     mainWindow.once('ready-to-show', () => {
       splash.close()
       mainWindow?.show()
+      broadcastBackendStatus('healthy')
     })
     mainWindow.on('closed', () => {
       mainWindow = null
