@@ -2,6 +2,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import ProviderSettings from '@/components/settings/ProviderSettings'
 import ConnectorSettings from '@/components/settings/ConnectorSettings'
 import PreferenceSettings from '@/components/settings/PreferenceSettings'
+import NotificationSettings from '@/components/settings/NotificationSettings'
 
 export default function SettingsPage() {
   return (
@@ -13,6 +14,7 @@ export default function SettingsPage() {
           <TabsTrigger value="providers">Providers</TabsTrigger>
           <TabsTrigger value="connectors">Connectors</TabsTrigger>
           <TabsTrigger value="preferences">Preferences</TabsTrigger>
+          <TabsTrigger value="notifications">Notifications</TabsTrigger>
         </TabsList>
 
         <TabsContent value="providers" className="pt-6">
@@ -23,6 +25,9 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="preferences" className="pt-6">
           <PreferenceSettings />
+        </TabsContent>
+        <TabsContent value="notifications" className="pt-6">
+          <NotificationSettings />
         </TabsContent>
       </Tabs>
     </div>

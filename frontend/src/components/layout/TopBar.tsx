@@ -6,6 +6,7 @@ import { Separator } from '@/components/ui/separator'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { ThemeToggle } from '@/components/layout/ThemeToggle'
+import NotificationBell from '@/components/notifications/NotificationBell'
 
 export function TopBar() {
   const [inputValue, setInputValue] = useState('')
@@ -34,6 +35,7 @@ export function TopBar() {
         />
       </div>
       <div className="flex items-center gap-1">
+        <NotificationBell />
         <ThemeToggle />
         <Button variant="ghost" size="icon-sm" nativeButton={false} render={<Link to="/settings" aria-label="Settings" />}>
           <Settings className="size-4" />
