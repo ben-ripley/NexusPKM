@@ -25,7 +25,8 @@ let appTray: Tray | null = null
 let isShuttingDown = false
 
 function getPreloadPath(): string {
-  return path.join(__dirname, '../preload/index.js')
+  // electron-vite 5 outputs ESM preload as preload.mjs (named after the entry file).
+  return path.join(__dirname, '../preload/preload.mjs')
 }
 
 async function createSplashWindow(): Promise<BrowserWindow> {

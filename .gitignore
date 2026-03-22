@@ -28,6 +28,10 @@ htmlcov/
 .coverage.*
 coverage.xml
 
+# Electron build assets (icons committed to repo; other build/ artefacts stay ignored)
+!frontend/build/icon.icns
+!frontend/build/icon.png
+
 # Node.js
 node_modules/
 frontend/dist/
