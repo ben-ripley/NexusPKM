@@ -20,8 +20,15 @@ export function broadcastBackendStatus(status: BackendStatus): void {
 /**
  * Registers the IPC handles and listeners that bridge the main process
  * and renderer.  Call once inside `app.whenReady()`.
+ *
+ * Safe to call more than once — existing registrations for these channels
+ * are removed before re-registering to avoid duplicate-handler errors.
  */
 export function registerIpcHandlers(): void {
+  // Remove any previous registrations so this function is idempotent.
+  ipcMain.removeHandler('get-backend-status')
+  ipcMain.removeAllListeners('notify')
+
   // Renderer can call this on mount to get current status without missing
   // broadcasts that fired before the renderer was ready.
   ipcMain.handle('get-backend-status', () => currentBackendStatus)
@@ -36,4 +43,9 @@ export function registerIpcHandlers(): void {
       notification.show()
     }
   })
+}
+
+/** Reset module state. For use in tests only. */
+export function _resetForTesting(): void {
+  currentBackendStatus = 'starting'
 }
