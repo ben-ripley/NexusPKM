@@ -287,3 +287,47 @@ def test_close_is_idempotent(tmp_path: Path) -> None:
     gs = GraphStore(tmp_path / "kuzu")
     gs.close()
     gs.close()  # second call must not raise
+
+
+# ---------------------------------------------------------------------------
+# get_entity_label
+# ---------------------------------------------------------------------------
+
+
+def test_get_entity_label_person(tmp_path: Path) -> None:
+    gs = GraphStore(tmp_path / "kuzu")
+    gs.upsert_person(PersonNode(id="p1", name="Alice"))
+    result = gs.get_entity_label("p1")
+    assert result == ("Alice", "Person")
+    gs.close()
+
+
+def test_get_entity_label_action_item(tmp_path: Path) -> None:
+    gs = GraphStore(tmp_path / "kuzu")
+    gs.upsert_action_item(ActionItemNode(id="a1", description="Fix login bug"))
+    result = gs.get_entity_label("a1")
+    assert result == ("Fix login bug", "ActionItem")
+    gs.close()
+
+
+def test_get_entity_label_decision(tmp_path: Path) -> None:
+    gs = GraphStore(tmp_path / "kuzu")
+    gs.upsert_decision(DecisionNode(id="d1", summary="Use Kuzu for graph storage"))
+    result = gs.get_entity_label("d1")
+    assert result == ("Use Kuzu for graph storage", "Decision")
+    gs.close()
+
+
+def test_get_entity_label_meeting(tmp_path: Path) -> None:
+    gs = GraphStore(tmp_path / "kuzu")
+    gs.upsert_meeting(MeetingNode(id="m1", title="Sprint Review"))
+    result = gs.get_entity_label("m1")
+    assert result == ("Sprint Review", "Meeting")
+    gs.close()
+
+
+def test_get_entity_label_not_found_returns_none(tmp_path: Path) -> None:
+    gs = GraphStore(tmp_path / "kuzu")
+    result = gs.get_entity_label("nonexistent-id")
+    assert result is None
+    gs.close()

@@ -161,6 +161,18 @@ _NODE_TABLE_NAMES: frozenset[str] = frozenset(
     {"Person", "Project", "Topic", "Decision", "ActionItem", "Meeting", "Document"}
 )
 
+# Maps each node table to the property that best identifies it by human-readable name.
+# Used by get_entity_label() to look up a display name across all node types.
+_ENTITY_LABEL_FIELDS: tuple[tuple[str, str], ...] = (
+    ("Person", "name"),
+    ("Project", "name"),
+    ("Topic", "name"),
+    ("Decision", "summary"),
+    ("ActionItem", "description"),
+    ("Meeting", "title"),
+    ("Document", "title"),
+)
+
 # Validates Cypher property key identifiers to prevent injection in SET clauses.
 _SAFE_CYPHER_IDENT_RE: re.Pattern[str] = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -431,6 +443,26 @@ class GraphStore:
             source_id=row["n.source_id"] or "",
             created_at=row["n.created_at"],
         )
+
+    # --- Cross-type entity lookup ---
+
+    def get_entity_label(self, entity_id: str) -> tuple[str, str] | None:
+        """Return ``(display_name, entity_type)`` for the given entity ID.
+
+        Searches all node types in order and returns the first match, or
+        ``None`` if the entity is not found in any table.
+
+        The ``entity_type`` is the raw table name (e.g. ``"ActionItem"``).
+        """
+        for table, field in _ENTITY_LABEL_FIELDS:
+            rows = self.execute(
+                f"MATCH (n:{table} {{id: $id}}) RETURN n.{field} AS label",
+                {"id": entity_id},
+            )
+            if rows:
+                label = rows[0].get("label") or entity_id
+                return (str(label), table)
+        return None
 
     # --- Generic delete ---
 

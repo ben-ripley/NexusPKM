@@ -52,7 +52,9 @@ def _make_document(doc_id: str = "doc-1", title: str = "Test Doc") -> Document:
 
 @pytest.fixture
 def mock_graph() -> MagicMock:
-    return MagicMock(spec=GraphStore)
+    mock = MagicMock(spec=GraphStore)
+    mock.get_entity_label.return_value = None
+    return mock
 
 
 @pytest.fixture
@@ -377,6 +379,99 @@ async def test_poll_contradictions_no_duplicates(
 
     notifications = await service.list_notifications()
     assert len(notifications) == 1
+
+
+@pytest.mark.asyncio
+async def test_poll_contradictions_title_includes_entity_name(
+    service: ProactiveService,
+) -> None:
+    from nexuspkm.models.contradiction import Contradiction, ContradictionType
+
+    contradiction = Contradiction(
+        id="c-title-1",
+        entity_id="e-1",
+        field_name="status",
+        old_value="open",
+        new_value="closed",
+        source_doc_id="doc-1",
+        detected_at=datetime.now(tz=UTC),
+        contradiction_type=ContradictionType.STATUS_CONFLICT,
+    )
+
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[contradiction])
+    service._graph.get_entity_label = MagicMock(return_value=("Fix login bug", "ActionItem"))
+
+    await service.poll_contradictions(mock_detector)
+
+    notifications = await service.list_notifications()
+    assert len(notifications) == 1
+    title = notifications[0].title
+    assert "Fix login bug" in title
+    assert "action item" in title
+    assert "status" in title
+
+
+@pytest.mark.asyncio
+async def test_poll_contradictions_title_fallback_when_entity_not_found(
+    service: ProactiveService,
+) -> None:
+    from nexuspkm.models.contradiction import Contradiction, ContradictionType
+
+    contradiction = Contradiction(
+        id="c-title-2",
+        entity_id="unknown-id",
+        field_name="priority",
+        old_value="low",
+        new_value="high",
+        source_doc_id="doc-1",
+        detected_at=datetime.now(tz=UTC),
+        contradiction_type=ContradictionType.STATUS_CONFLICT,
+    )
+
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[contradiction])
+    service._graph.get_entity_label = MagicMock(return_value=None)
+
+    await service.poll_contradictions(mock_detector)
+
+    notifications = await service.list_notifications()
+    assert len(notifications) == 1
+    title = notifications[0].title
+    assert "priority" in title
+    assert "unknown entity" in title
+
+
+@pytest.mark.asyncio
+async def test_poll_contradictions_truncates_long_entity_name(
+    service: ProactiveService,
+) -> None:
+    from nexuspkm.models.contradiction import Contradiction, ContradictionType
+
+    contradiction = Contradiction(
+        id="c-title-3",
+        entity_id="e-3",
+        field_name="status",
+        old_value="open",
+        new_value="closed",
+        source_doc_id="doc-1",
+        detected_at=datetime.now(tz=UTC),
+        contradiction_type=ContradictionType.STATUS_CONFLICT,
+    )
+
+    mock_detector = MagicMock()
+    mock_detector.list_unresolved = AsyncMock(return_value=[contradiction])
+    long_name = "A" * 60
+    service._graph.get_entity_label = MagicMock(return_value=(long_name, "ActionItem"))
+
+    await service.poll_contradictions(mock_detector)
+
+    notifications = await service.list_notifications()
+    title = notifications[0].title
+    assert "..." in title
+    # truncated name should be 37 chars + "..."
+    assert long_name[:37] in title
+    assert long_name not in title  # full 60-char name must not appear
 
 
 @pytest.mark.asyncio

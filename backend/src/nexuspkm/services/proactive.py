@@ -48,6 +48,17 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
+# Human-readable labels for graph entity types, used in contradiction notification titles.
+_ENTITY_TYPE_LABELS: dict[str, str] = {
+    "Person": "person",
+    "Project": "project",
+    "Topic": "topic",
+    "Decision": "decision",
+    "ActionItem": "action item",
+    "Meeting": "meeting",
+    "Document": "document",
+}
+
 _NOTIFICATIONS_DDL = """\
 CREATE TABLE IF NOT EXISTS notifications (
     id              TEXT PRIMARY KEY,
@@ -379,10 +390,22 @@ class ProactiveService:
             if exists:
                 continue
 
+            entity_label = await loop.run_in_executor(
+                None, self._graph.get_entity_label, c.entity_id
+            )
+            if entity_label is not None:
+                entity_name, entity_type = entity_label
+                if len(entity_name) > 40:
+                    entity_name = entity_name[:37] + "..."
+                friendly_type = _ENTITY_TYPE_LABELS.get(entity_type, entity_type.lower())
+                title = f"'{c.field_name}' conflict on '{entity_name}' ({friendly_type})"
+            else:
+                title = f"Contradiction: '{c.field_name}' on unknown entity"
+
             notif = Notification(
                 id=notif_id,
                 type=NotificationType.CONTRADICTION,
-                title=f"Contradiction: {c.field_name} on entity {c.entity_id}",
+                title=title,
                 summary=(f"Field '{c.field_name}' changed from '{c.old_value}' to '{c.new_value}'"),
                 priority=NotificationPriority.MEDIUM,
                 data={
