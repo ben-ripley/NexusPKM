@@ -309,3 +309,87 @@ export async function fetchActiveProviders(): Promise<ActiveProviders> {
   if (!res.ok) throw new Error(`Failed to fetch active providers: ${res.status}`)
   return ActiveProvidersSchema.parse(await res.json())
 }
+
+// ---------------------------------------------------------------------------
+// Notification schemas (F-013)
+// ---------------------------------------------------------------------------
+
+const NotificationSchema = z.object({
+  id: z.string(),
+  type: z.enum(['meeting_prep', 'related_content', 'contradiction', 'insight']),
+  title: z.string(),
+  summary: z.string(),
+  priority: z.enum(['high', 'medium', 'low']),
+  data: z.record(z.string(), z.unknown()),
+  read: z.boolean(),
+  created_at: z.string(),
+})
+
+const NotificationPreferencesSchema = z.object({
+  meeting_prep_enabled: z.boolean(),
+  meeting_prep_lead_time_minutes: z.number(),
+  related_content_enabled: z.boolean(),
+  related_content_threshold: z.number(),
+  contradiction_alerts_enabled: z.boolean(),
+  webhook_url: z.string().nullable(),
+})
+
+const UnreadCountSchema = z.object({ count: z.number() })
+
+// ---------------------------------------------------------------------------
+// Notification exported types
+// ---------------------------------------------------------------------------
+
+export type Notification = z.infer<typeof NotificationSchema>
+export type NotificationPreferences = z.infer<typeof NotificationPreferencesSchema>
+
+// ---------------------------------------------------------------------------
+// Notification API functions
+// ---------------------------------------------------------------------------
+
+export async function fetchNotifications(unreadOnly?: boolean): Promise<Notification[]> {
+  const params = new URLSearchParams()
+  if (unreadOnly) params.set('unread_only', 'true')
+  const query = params.toString()
+  const res = await fetch(`${API}/api/notifications${query ? `?${query}` : ''}`)
+  if (!res.ok) throw new Error(`Failed to fetch notifications: ${res.status}`)
+  return z.array(NotificationSchema).parse(await res.json())
+}
+
+export async function fetchUnreadCount(): Promise<{ count: number }> {
+  const res = await fetch(`${API}/api/notifications/unread-count`)
+  if (!res.ok) throw new Error(`Failed to fetch unread count: ${res.status}`)
+  return UnreadCountSchema.parse(await res.json())
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  const res = await fetch(`${API}/api/notifications/${encodeURIComponent(id)}/read`, {
+    method: 'PUT',
+  })
+  if (!res.ok) throw new Error(`Failed to mark notification read: ${res.status}`)
+}
+
+export async function dismissNotification(id: string): Promise<void> {
+  const res = await fetch(`${API}/api/notifications/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`Failed to dismiss notification: ${res.status}`)
+}
+
+export async function fetchNotificationPreferences(): Promise<NotificationPreferences> {
+  const res = await fetch(`${API}/api/context/preferences`)
+  if (!res.ok) throw new Error(`Failed to fetch notification preferences: ${res.status}`)
+  return NotificationPreferencesSchema.parse(await res.json())
+}
+
+export async function updateNotificationPreferences(
+  prefs: NotificationPreferences
+): Promise<NotificationPreferences> {
+  const res = await fetch(`${API}/api/context/preferences`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(prefs),
+  })
+  if (!res.ok) throw new Error(`Failed to update notification preferences: ${res.status}`)
+  return NotificationPreferencesSchema.parse(await res.json())
+}

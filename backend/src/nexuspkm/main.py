@@ -21,6 +21,8 @@ from nexuspkm.api.entities import (
 )
 from nexuspkm.api.entities import router as entities_router
 from nexuspkm.api.jira import router as jira_router
+from nexuspkm.api.notifications import get_proactive_service
+from nexuspkm.api.notifications import router as notifications_router
 from nexuspkm.api.obsidian import router as obsidian_router
 from nexuspkm.api.outlook import router as outlook_router
 from nexuspkm.api.providers import get_registry
@@ -46,6 +48,7 @@ from nexuspkm.engine import (
 )
 from nexuspkm.providers.registry import ProviderRegistry
 from nexuspkm.services.chat import ChatService
+from nexuspkm.services.proactive import ProactiveService
 from nexuspkm.services.schedule import ScheduleService
 
 log = structlog.get_logger()
@@ -60,13 +63,14 @@ _extraction_queue: ExtractionQueue | None = None
 _contradiction_detector: ContradictionDetector | None = None
 _chat_service: ChatService | None = None
 _schedule_service: ScheduleService | None = None
+_proactive_service: ProactiveService | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _registry, _knowledge_index, _vector_store, _graph_store
     global _connector_registry, _sync_scheduler, _extraction_queue, _contradiction_detector
-    global _chat_service, _schedule_service
+    global _chat_service, _schedule_service, _proactive_service
     config = await asyncio.to_thread(load_config)
     _registry = ProviderRegistry(config.providers)
     app.dependency_overrides[get_registry] = lambda: _registry
@@ -77,6 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # VectorStore.__init__ is lazy (no disk I/O); GraphStore.__init__ opens the
     # Kuzu database and runs schema DDL, so it must be offloaded to a thread.
     _vector_store = VectorStore(db_path=str(data_dir / "lancedb"), dimensions=embed_dim)
+    llm_provider = _registry.get_llm()
     try:
         _graph_store = await asyncio.to_thread(GraphStore, data_dir / "kuzu")
         # Init extraction queue (persistent SQLite) before KnowledgeIndex so the
@@ -87,11 +92,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         contradiction_db_path = data_dir / "contradictions.db"
         _contradiction_detector = ContradictionDetector(contradiction_db_path)
         await _contradiction_detector.init()
+        # ProactiveService is created before KnowledgeIndex so its on_insert hook
+        # can be passed via the constructor rather than mutated after construction.
+        _proactive_service = ProactiveService(
+            graph_store=_graph_store,
+            llm_provider=llm_provider,
+            db_path=data_dir / "notifications.db",
+        )
+        await _proactive_service.init()
         _knowledge_index = KnowledgeIndex(
             _vector_store,
             _graph_store,
             embedding_provider,
             extraction_queue=_extraction_queue,
+            on_insert=_proactive_service.on_document_ingested,
         )
     except Exception:
         if _graph_store is not None:
@@ -105,8 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[search_get_graph_store] = lambda: _graph_store
     _schedule_service = ScheduleService(_graph_store)
     app.dependency_overrides[get_schedule_service] = lambda: _schedule_service
-
-    llm_provider = _registry.get_llm()
+    app.dependency_overrides[get_proactive_service] = lambda: _proactive_service
     _extractor = EntityExtractor(llm_provider)
     _deduplicator = EntityDeduplicator(
         _graph_store,
@@ -247,6 +260,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.dependency_overrides[jira_get_registry] = lambda: _connector_registry
     app.dependency_overrides[jira_get_scheduler] = lambda: _sync_scheduler
     _sync_scheduler.start(intervals)
+    _proactive_service.start_scanner(contradiction_detector=_contradiction_detector)
 
     if _obsidian_connector is not None and _knowledge_index is not None:
         await _obsidian_connector.start_watching(
@@ -265,6 +279,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _obsidian_connector.stop_watching()
     if _sync_scheduler:
         await _sync_scheduler.shutdown()
+    if _proactive_service is not None:
+        await _proactive_service.shutdown()
     if _extraction_queue is not None:
         await _extraction_queue.stop()
     if _chat_service is not None:
@@ -275,6 +291,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await asyncio.to_thread(_graph_store.close)
     _chat_service = None
     _schedule_service = None
+    _proactive_service = None
     _registry = None
     _knowledge_index = None
     _vector_store = None
@@ -299,6 +316,7 @@ app.include_router(chat_router)
 app.include_router(schedule_router)
 app.include_router(search_router)
 app.include_router(dashboard_router)
+app.include_router(notifications_router)
 
 
 @app.get("/health")

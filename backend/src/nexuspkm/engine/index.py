@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import re
 import threading
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
 import structlog
@@ -64,9 +65,11 @@ class KnowledgeIndex:
         embedding_provider: BaseEmbeddingProvider,
         chunker: DocumentChunker | None = None,
         extraction_queue: ExtractionQueue | None = None,
+        on_insert: Callable[[Document], Awaitable[None]] | None = None,
     ) -> None:
         self._vector_store = vector_store
         self._graph_store = graph_store
+        self._on_insert = on_insert
         # Single shared lock ensures mutual exclusion over the Kuzu connection
         # across concurrent ingest, retrieval, and stats operations.
         _graph_lock = threading.Lock()
@@ -89,6 +92,11 @@ class KnowledgeIndex:
         updated = await self._pipeline.ingest(document)
         if self._extraction_queue is not None:
             await self._extraction_queue.enqueue(updated)
+        if self._on_insert is not None:
+            try:
+                await self._on_insert(updated)
+            except Exception:
+                logger.warning("knowledge_index.on_insert_hook_failed", doc_id=updated.id)
         return updated
 
     async def delete(self, document_id: str) -> None:
