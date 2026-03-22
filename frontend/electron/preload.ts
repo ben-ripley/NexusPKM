@@ -1,6 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
-
-type BackendStatus = 'starting' | 'healthy' | 'error' | 'stopped'
+import type { BackendStatus } from './notification-utils'
 
 contextBridge.exposeInMainWorld('electron', {
   platform: process.platform,
@@ -18,7 +17,16 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   /**
+   * Query the current backend status (useful on initial load to avoid
+   * missing broadcasts that fired before the renderer was ready).
+   */
+  getBackendStatus(): Promise<BackendStatus> {
+    return ipcRenderer.invoke('get-backend-status') as Promise<BackendStatus>
+  },
+
+  /**
    * Show a native OS notification via the main process.
+   * Fire-and-forget: inputs are sanitised in the main process.
    */
   notify(title: string, body: string): void {
     ipcRenderer.send('notify', title, body)

@@ -1,6 +1,8 @@
 /**
  * Global type declaration for the contextBridge API exposed by the Electron preload script.
  * When running as a web app (npm run dev), window.electron is undefined.
+ *
+ * BackendStatus mirrors the canonical definition in electron/notification-utils.ts.
  */
 
 type BackendStatus = 'starting' | 'healthy' | 'error' | 'stopped'
@@ -15,7 +17,13 @@ interface ElectronAPI {
    */
   onBackendStatus(callback: (status: BackendStatus) => void): () => void
 
-  /** Show a native OS notification. */
+  /**
+   * Query the current backend status. Use this on component mount to get
+   * the initial state without missing events that fired before render.
+   */
+  getBackendStatus(): Promise<BackendStatus>
+
+  /** Show a native OS notification. Fire-and-forget. */
   notify(title: string, body: string): void
 }
 

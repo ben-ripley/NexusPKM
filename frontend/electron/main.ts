@@ -2,26 +2,33 @@ import { app, BrowserWindow, dialog, ipcMain, Notification } from 'electron'
 import { spawn, type ChildProcess } from 'child_process'
 import path from 'path'
 import { isPortInUse, waitForHealth } from './backend-lifecycle'
+import { sanitizeNotification, type BackendStatus } from './notification-utils'
 
 const BACKEND_PORT = parseInt(process.env['NEXUSPKM_BACKEND_PORT'] ?? '8000', 10)
 const HEALTH_URL = `http://127.0.0.1:${BACKEND_PORT}/health`
 const BACKEND_TIMEOUT_MS = 10_000
 const BACKEND_TIMEOUT_S = BACKEND_TIMEOUT_MS / 1000
 
-type BackendStatus = 'starting' | 'healthy' | 'error' | 'stopped'
-
 let backendProcess: ChildProcess | null = null
 let mainWindow: BrowserWindow | null = null
 let isShuttingDown = false
+let currentBackendStatus: BackendStatus = 'starting'
 
 function getPreloadPath(): string {
   return path.join(__dirname, '../preload/index.js')
 }
 
-/** Broadcast a backend lifecycle status to all open renderer windows. */
+/**
+ * Broadcasts a backend lifecycle status event to all renderer windows.
+ * Also caches the status so late-joining renderers can query it via
+ * the `get-backend-status` IPC handle.
+ */
 function broadcastBackendStatus(status: BackendStatus): void {
+  currentBackendStatus = status
   for (const win of BrowserWindow.getAllWindows()) {
-    win.webContents.send('backend-status', status)
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+      win.webContents.send('backend-status', status)
+    }
   }
 }
 
@@ -146,10 +153,17 @@ async function shutdownBackend(): Promise<void> {
   backendProcess = null
 }
 
-// Handle renderer requests for native notifications
-ipcMain.on('notify', (_event, title: string, body: string) => {
+// Allow renderers to query current backend status synchronously on load,
+// avoiding a race where broadcasts fired before the renderer was ready.
+ipcMain.handle('get-backend-status', () => currentBackendStatus)
+
+// Handle renderer requests for native OS notifications.
+// Sanitises inputs from the untrusted renderer context before use.
+ipcMain.on('notify', (_event, title: unknown, body: unknown) => {
+  const params = sanitizeNotification(title, body)
+  if (params === null) return
   if (Notification.isSupported()) {
-    new Notification({ title, body }).show()
+    new Notification({ title: params.title, body: params.body }).show()
   }
 })
 
@@ -170,6 +184,9 @@ app
 
     const splash = await createSplashWindow()
     backendProcess = spawnBackend()
+    // Status cached as 'starting'; broadcast goes to zero renderer windows
+    // at this point (only splash is open, which has no listener).
+    // Renderers that load later query current status via get-backend-status.
     broadcastBackendStatus('starting')
 
     try {
