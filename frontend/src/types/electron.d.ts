@@ -38,7 +38,7 @@ interface ElectronAPI {
    * Subscribe to navigation requests from the main process (e.g. tray Quick Chat).
    * Returns a cleanup function that removes the listener.
    */
-  readonly onNavigate: (callback: (path: string) => void) => () => void
+  readonly onNavigate: (callback: (routePath: string) => void) => () => void
 }
 
 declare global {

@@ -185,7 +185,11 @@ app
 
     mainWindow = createMainWindow()
 
-    setupCloseToTray(mainWindow, () => getCurrentPreferences().closeToTray)
+    setupCloseToTray(
+      mainWindow,
+      () => getCurrentPreferences().closeToTray,
+      () => isShuttingDown,
+    )
 
     const iconPath = app.isPackaged
       ? path.join(process.resourcesPath, 'build', 'icon.png')
@@ -205,7 +209,7 @@ app
       () => app.quit(),
     )
 
-    globalShortcut.register('CommandOrControl+Shift+K', () => {
+    const shortcutRegistered = globalShortcut.register('CommandOrControl+Shift+K', () => {
       if (!mainWindow) return
       if (mainWindow.isVisible()) {
         mainWindow.hide()
@@ -213,6 +217,9 @@ app
         showAndFocusWindow(mainWindow)
       }
     })
+    if (!shortcutRegistered) {
+      process.stderr.write('[main] Failed to register global shortcut CommandOrControl+Shift+K\n')
+    }
 
     mainWindow.once('ready-to-show', () => {
       splash.close()
@@ -256,7 +263,11 @@ app.on('activate', () => {
   // On macOS, re-open window only if backend is still running
   if (BrowserWindow.getAllWindows().length === 0 && backendProcess !== null) {
     mainWindow = createMainWindow()
-    setupCloseToTray(mainWindow, () => getCurrentPreferences().closeToTray)
+    setupCloseToTray(
+      mainWindow,
+      () => getCurrentPreferences().closeToTray,
+      () => isShuttingDown,
+    )
     mainWindow.show()
     mainWindow.on('closed', () => {
       mainWindow = null

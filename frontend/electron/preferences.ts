@@ -34,7 +34,13 @@ export function loadPreferences(dataDir: string): AppPreferences {
 
 /**
  * Writes AppPreferences to `{dataDir}/preferences.json`.
+ * Logs a warning to stderr if the write fails (e.g. read-only filesystem, disk full).
+ * Never throws.
  */
 export function savePreferences(dataDir: string, prefs: AppPreferences): void {
-  fs.writeFileSync(path.join(dataDir, PREFS_FILE), JSON.stringify(prefs, null, 2), 'utf-8')
+  try {
+    fs.writeFileSync(path.join(dataDir, PREFS_FILE), JSON.stringify(prefs, null, 2), 'utf-8')
+  } catch (err) {
+    process.stderr.write(`[preferences] Failed to save preferences: ${String(err)}\n`)
+  }
 }

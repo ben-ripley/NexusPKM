@@ -28,7 +28,7 @@ function makeMockWindow() {
 describe('setupCloseToTray', () => {
   it('hides the window and cancels close when closeToTray is true', () => {
     const win = makeMockWindow()
-    setupCloseToTray(win as never, () => true)
+    setupCloseToTray(win as never, () => true, () => false)
     const preventDefault = win.triggerClose()
     expect(win.hide).toHaveBeenCalledOnce()
     expect(preventDefault).toHaveBeenCalledOnce()
@@ -36,23 +36,32 @@ describe('setupCloseToTray', () => {
 
   it('does not prevent close when closeToTray is false', () => {
     const win = makeMockWindow()
-    setupCloseToTray(win as never, () => false)
+    setupCloseToTray(win as never, () => false, () => false)
     const preventDefault = win.triggerClose()
     expect(win.hide).not.toHaveBeenCalled()
     expect(preventDefault).not.toHaveBeenCalled()
   })
 
-  it('re-evaluates the getter on each close event', () => {
-    let closeToTray = true
+  it('does not prevent close when the app is shutting down, even if closeToTray is true', () => {
     const win = makeMockWindow()
-    setupCloseToTray(win as never, () => closeToTray)
+    setupCloseToTray(win as never, () => true, () => true)
+    const preventDefault = win.triggerClose()
+    expect(win.hide).not.toHaveBeenCalled()
+    expect(preventDefault).not.toHaveBeenCalled()
+  })
+
+  it('re-evaluates both getters on each close event', () => {
+    let closeToTray = true
+    let shuttingDown = false
+    const win = makeMockWindow()
+    setupCloseToTray(win as never, () => closeToTray, () => shuttingDown)
 
     win.triggerClose()
     expect(win.hide).toHaveBeenCalledTimes(1)
 
-    closeToTray = false
+    shuttingDown = true
     win.triggerClose()
-    expect(win.hide).toHaveBeenCalledTimes(1) // not called again
+    expect(win.hide).toHaveBeenCalledTimes(1) // not called again during shutdown
   })
 })
 

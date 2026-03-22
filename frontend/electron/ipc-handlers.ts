@@ -5,6 +5,8 @@ import { loadPreferences, savePreferences, type AppPreferences } from './prefere
 let currentBackendStatus: BackendStatus = 'starting'
 let preferencesCache: AppPreferences | null = null
 
+const VALID_PREFERENCE_KEYS: readonly (keyof AppPreferences)[] = ['autoLaunch', 'closeToTray']
+
 function getPreferencesFromCache(): AppPreferences {
   if (preferencesCache === null) {
     preferencesCache = loadPreferences(app.getPath('userData'))
@@ -56,8 +58,7 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('set-preference', (_event, key: unknown, value: unknown) => {
     if (typeof key !== 'string' || typeof value !== 'boolean') return
-    const validKeys: readonly (keyof AppPreferences)[] = ['autoLaunch', 'closeToTray']
-    if (!validKeys.includes(key as keyof AppPreferences)) return
+    if (!VALID_PREFERENCE_KEYS.includes(key as keyof AppPreferences)) return
     const updated: AppPreferences = { ...getPreferencesFromCache(), [key]: value }
     savePreferences(app.getPath('userData'), updated)
     preferencesCache = updated

@@ -67,9 +67,9 @@ contextBridge.exposeInMainWorld('electron', {
    * Subscribe to navigation requests from the main process (e.g. tray Quick Chat).
    * Returns a cleanup function that removes the listener.
    */
-  onNavigate(callback: (path: string) => void): () => void {
-    const handler = (_e: IpcRendererEvent, path: unknown) => {
-      if (typeof path === 'string') callback(path)
+  onNavigate(callback: (routePath: string) => void): () => void {
+    const handler = (_e: IpcRendererEvent, routePath: unknown) => {
+      if (typeof routePath === 'string') callback(routePath)
     }
     ipcRenderer.on('navigate', handler)
     return () => {
