@@ -51,7 +51,7 @@ describe('setupCloseToTray', () => {
   })
 
   it('re-evaluates both getters on each close event', () => {
-    let closeToTray = true
+    const closeToTray = true
     let shuttingDown = false
     const win = makeMockWindow()
     setupCloseToTray(win as never, () => closeToTray, () => shuttingDown)
