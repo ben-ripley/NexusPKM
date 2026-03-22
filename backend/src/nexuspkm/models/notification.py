@@ -48,7 +48,13 @@ class NotificationPreferences(BaseModel):
     related_content_enabled: bool = True
     related_content_threshold: float = 0.7
     contradiction_alerts_enabled: bool = True
+    # Global fallback webhook URL (all notification types)
     webhook_url: str | None = None
+    # Per-type webhook URLs (take precedence over webhook_url when set)
+    webhook_url_meeting_prep: str | None = None
+    webhook_url_related_content: str | None = None
+    webhook_url_contradiction: str | None = None
+    webhook_url_insight: str | None = None
 
 
 class DocumentSummary(BaseModel):
