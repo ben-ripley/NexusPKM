@@ -164,6 +164,17 @@ def test_get_preferences_returns_200(client: TestClient) -> None:
     assert data["meeting_prep_enabled"] is True
 
 
+def test_get_preferences_includes_per_type_webhook_fields(client: TestClient) -> None:
+    response = client.get("/api/context/preferences")
+    assert response.status_code == 200
+    data = response.json()
+    assert "webhook_url" in data
+    assert "webhook_url_meeting_prep" in data
+    assert "webhook_url_related_content" in data
+    assert "webhook_url_contradiction" in data
+    assert "webhook_url_insight" in data
+
+
 # ---------------------------------------------------------------------------
 # PUT /api/context/preferences
 # ---------------------------------------------------------------------------
@@ -177,6 +188,10 @@ def test_update_preferences_returns_200(client: TestClient, mock_service: MagicM
         "related_content_threshold": 0.6,
         "contradiction_alerts_enabled": False,
         "webhook_url": None,
+        "webhook_url_meeting_prep": "https://hook.example.com/meetings",
+        "webhook_url_related_content": None,
+        "webhook_url_contradiction": None,
+        "webhook_url_insight": None,
     }
     # Make get_preferences return the saved values after save
     mock_service.get_preferences = AsyncMock(

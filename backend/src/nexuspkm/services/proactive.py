@@ -74,6 +74,16 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
 INSERT OR IGNORE INTO notification_preferences (id) VALUES (1);
 """
 
+# Migration: add per-type webhook columns introduced in NXP-88 (FR-6).
+# ALTER TABLE ADD COLUMN is idempotent-by-try-except because SQLite lacks
+# IF NOT EXISTS for column additions.
+_PREFERENCES_MIGRATION_V2 = [
+    "ALTER TABLE notification_preferences ADD COLUMN webhook_url_meeting_prep TEXT",
+    "ALTER TABLE notification_preferences ADD COLUMN webhook_url_related_content TEXT",
+    "ALTER TABLE notification_preferences ADD COLUMN webhook_url_contradiction TEXT",
+    "ALTER TABLE notification_preferences ADD COLUMN webhook_url_insight TEXT",
+]
+
 
 class NotificationWSManager:
     """Manages active WebSocket connections for push notifications."""
@@ -132,6 +142,17 @@ class ProactiveService:
         with sqlite3.connect(self._db_path) as conn:
             conn.executescript(_NOTIFICATIONS_DDL)
             conn.executescript(_PREFERENCES_DDL)
+            for stmt in _PREFERENCES_MIGRATION_V2:
+                try:
+                    conn.execute(stmt)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        logger.error(
+                            "proactive.schema_migration_failed",
+                            stmt=stmt,
+                            error=str(exc),
+                        )
+                        raise
 
     def start_scanner(
         self,
@@ -571,13 +592,18 @@ class ProactiveService:
             row = conn.execute("SELECT * FROM notification_preferences WHERE id=1").fetchone()
         if row is None:
             return NotificationPreferences()
+        r = dict(row)
         return NotificationPreferences(
-            meeting_prep_enabled=bool(row["meeting_prep_enabled"]),
-            meeting_prep_lead_time_minutes=int(row["meeting_prep_lead_time_minutes"]),
-            related_content_enabled=bool(row["related_content_enabled"]),
-            related_content_threshold=float(row["related_content_threshold"]),
-            contradiction_alerts_enabled=bool(row["contradiction_alerts_enabled"]),
-            webhook_url=row["webhook_url"],
+            meeting_prep_enabled=bool(r["meeting_prep_enabled"]),
+            meeting_prep_lead_time_minutes=int(r["meeting_prep_lead_time_minutes"]),
+            related_content_enabled=bool(r["related_content_enabled"]),
+            related_content_threshold=float(r["related_content_threshold"]),
+            contradiction_alerts_enabled=bool(r["contradiction_alerts_enabled"]),
+            webhook_url=r.get("webhook_url"),
+            webhook_url_meeting_prep=r.get("webhook_url_meeting_prep"),
+            webhook_url_related_content=r.get("webhook_url_related_content"),
+            webhook_url_contradiction=r.get("webhook_url_contradiction"),
+            webhook_url_insight=r.get("webhook_url_insight"),
         )
 
     async def save_preferences(self, prefs: NotificationPreferences) -> None:
@@ -590,15 +616,21 @@ class ProactiveService:
                 "INSERT INTO notification_preferences "
                 "(id, meeting_prep_enabled, meeting_prep_lead_time_minutes, "
                 " related_content_enabled, related_content_threshold, "
-                " contradiction_alerts_enabled, webhook_url) "
-                "VALUES (1, ?, ?, ?, ?, ?, ?) "
+                " contradiction_alerts_enabled, webhook_url, "
+                " webhook_url_meeting_prep, webhook_url_related_content, "
+                " webhook_url_contradiction, webhook_url_insight) "
+                "VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
                 "ON CONFLICT(id) DO UPDATE SET "
                 "  meeting_prep_enabled=excluded.meeting_prep_enabled, "
                 "  meeting_prep_lead_time_minutes=excluded.meeting_prep_lead_time_minutes, "
                 "  related_content_enabled=excluded.related_content_enabled, "
                 "  related_content_threshold=excluded.related_content_threshold, "
                 "  contradiction_alerts_enabled=excluded.contradiction_alerts_enabled, "
-                "  webhook_url=excluded.webhook_url",
+                "  webhook_url=excluded.webhook_url, "
+                "  webhook_url_meeting_prep=excluded.webhook_url_meeting_prep, "
+                "  webhook_url_related_content=excluded.webhook_url_related_content, "
+                "  webhook_url_contradiction=excluded.webhook_url_contradiction, "
+                "  webhook_url_insight=excluded.webhook_url_insight",
                 (
                     int(prefs.meeting_prep_enabled),
                     prefs.meeting_prep_lead_time_minutes,
@@ -606,6 +638,10 @@ class ProactiveService:
                     prefs.related_content_threshold,
                     int(prefs.contradiction_alerts_enabled),
                     prefs.webhook_url,
+                    prefs.webhook_url_meeting_prep,
+                    prefs.webhook_url_related_content,
+                    prefs.webhook_url_contradiction,
+                    prefs.webhook_url_insight,
                 ),
             )
 
@@ -616,9 +652,23 @@ class ProactiveService:
     async def _deliver_webhook(
         self, notification: Notification, prefs: NotificationPreferences
     ) -> None:
-        if not prefs.webhook_url:
+        # Per-type URL takes precedence; fall back to the global webhook_url.
+        type_url_map = {
+            NotificationType.MEETING_PREP: prefs.webhook_url_meeting_prep,
+            NotificationType.RELATED_CONTENT: prefs.webhook_url_related_content,
+            NotificationType.CONTRADICTION: prefs.webhook_url_contradiction,
+            NotificationType.INSIGHT: prefs.webhook_url_insight,
+        }
+        if notification.type not in type_url_map:
+            logger.warning(
+                "proactive.webhook_unknown_notification_type",
+                notification_type=notification.type,
+                notification_id=notification.id,
+            )
+        url = type_url_map.get(notification.type) or prefs.webhook_url
+        if not url:
             return
-        parsed = urlparse(prefs.webhook_url)
+        parsed = urlparse(url)
         if parsed.scheme != "https":
             logger.warning(
                 "proactive.webhook_rejected_non_https",
@@ -629,7 +679,7 @@ class ProactiveService:
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 await client.post(
-                    prefs.webhook_url,
+                    url,
                     json=notification.model_dump(mode="json"),
                 )
         except Exception:

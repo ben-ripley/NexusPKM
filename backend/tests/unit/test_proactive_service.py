@@ -212,13 +212,13 @@ async def test_update_preferences(service: ProactiveService) -> None:
         meeting_prep_enabled=False,
         meeting_prep_lead_time_minutes=30,
         related_content_threshold=0.5,
-        webhook_url="http://example.com/hook",
+        webhook_url="https://example.com/hook",
     )
     await service.save_preferences(updated)
     loaded = await service.get_preferences()
     assert loaded.meeting_prep_enabled is False
     assert loaded.meeting_prep_lead_time_minutes == 30
-    assert loaded.webhook_url == "http://example.com/hook"
+    assert loaded.webhook_url == "https://example.com/hook"
 
 
 @pytest.mark.asyncio
@@ -473,3 +473,242 @@ async def test_scan_tick_no_contradiction_detector(
 
     with patch.object(service, "_scan_upcoming_meetings", new_callable=AsyncMock):
         await service._scan_tick()  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Webhook delivery — extensibility API (NXP-88 / FR-6)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_webhook_not_delivered_when_no_url_configured(
+    service: ProactiveService,
+) -> None:
+    """No HTTP call is made when neither global nor type-specific URL is set."""
+    notif = _make_notification("n-1", NotificationType.INSIGHT)
+    prefs = NotificationPreferences()  # all webhook URLs are None
+
+    with patch("nexuspkm.services.proactive.httpx.AsyncClient") as mock_client_cls:
+        await service._deliver_webhook(notif, prefs)
+        mock_client_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_webhook_uses_global_url_as_fallback(
+    service: ProactiveService,
+) -> None:
+    """When no type-specific URL is set, the global webhook_url is used."""
+    notif = _make_notification("n-1", NotificationType.MEETING_PREP)
+    prefs = NotificationPreferences(webhook_url="https://hook.example.com/all")
+
+    mock_response = MagicMock()
+    mock_response.raise_for_status = MagicMock()
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock(return_value=mock_response)
+
+    with patch("nexuspkm.services.proactive.httpx.AsyncClient", return_value=mock_client):
+        await service._deliver_webhook(notif, prefs)
+
+    mock_client.post.assert_called_once()
+    call_url = mock_client.post.call_args[0][0]
+    assert call_url == "https://hook.example.com/all"
+
+
+@pytest.mark.asyncio
+async def test_webhook_uses_type_specific_url_over_global(
+    service: ProactiveService,
+) -> None:
+    """Type-specific webhook URL takes precedence over the global URL."""
+    notif = _make_notification("n-1", NotificationType.MEETING_PREP)
+    prefs = NotificationPreferences(
+        webhook_url="https://hook.example.com/all",
+        webhook_url_meeting_prep="https://hook.example.com/meetings",
+    )
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock()
+
+    with patch("nexuspkm.services.proactive.httpx.AsyncClient", return_value=mock_client):
+        await service._deliver_webhook(notif, prefs)
+
+    call_url = mock_client.post.call_args[0][0]
+    assert call_url == "https://hook.example.com/meetings"
+
+
+@pytest.mark.asyncio
+async def test_webhook_type_specific_url_for_each_type(
+    service: ProactiveService,
+) -> None:
+    """Each notification type routes to its own webhook URL when configured."""
+    prefs = NotificationPreferences(
+        webhook_url_meeting_prep="https://hook.example.com/meetings",
+        webhook_url_related_content="https://hook.example.com/related",
+        webhook_url_contradiction="https://hook.example.com/contradiction",
+        webhook_url_insight="https://hook.example.com/insight",
+    )
+    type_url_pairs = [
+        (NotificationType.MEETING_PREP, "https://hook.example.com/meetings"),
+        (NotificationType.RELATED_CONTENT, "https://hook.example.com/related"),
+        (NotificationType.CONTRADICTION, "https://hook.example.com/contradiction"),
+        (NotificationType.INSIGHT, "https://hook.example.com/insight"),
+    ]
+
+    for ntype, expected_url in type_url_pairs:
+        notif = _make_notification("n-1", ntype)
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client.post = AsyncMock()
+
+        with patch("nexuspkm.services.proactive.httpx.AsyncClient", return_value=mock_client):
+            await service._deliver_webhook(notif, prefs)
+
+        call_url = mock_client.post.call_args[0][0]
+        assert call_url == expected_url, f"Wrong URL for {ntype}"
+
+
+def test_webhook_rejects_non_https_url_at_model_validation() -> None:
+    """Non-HTTPS URLs are rejected by Pydantic at model construction time."""
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        NotificationPreferences(webhook_url_contradiction="http://insecure.example.com/hook")
+
+    with pytest.raises(ValidationError, match="must use HTTPS"):
+        NotificationPreferences(webhook_url="http://global.example.com/hook")
+
+
+def test_webhook_accepts_https_url() -> None:
+    """HTTPS URLs are accepted by the model."""
+    prefs = NotificationPreferences(
+        webhook_url="https://global.example.com/hook",
+        webhook_url_contradiction="https://contradiction.example.com/hook",
+    )
+    assert prefs.webhook_url == "https://global.example.com/hook"
+    assert prefs.webhook_url_contradiction == "https://contradiction.example.com/hook"
+
+
+def test_webhook_accepts_none_url() -> None:
+    """None is accepted for all webhook URL fields."""
+    prefs = NotificationPreferences(
+        webhook_url=None,
+        webhook_url_meeting_prep=None,
+    )
+    assert prefs.webhook_url is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_payload_contains_notification_data(
+    service: ProactiveService,
+) -> None:
+    """Webhook POST body is the full notification serialised as JSON."""
+    notif = _make_notification("n-webhook", NotificationType.INSIGHT)
+    prefs = NotificationPreferences(webhook_url_insight="https://hook.example.com/insight")
+
+    mock_client = AsyncMock()
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+    mock_client.post = AsyncMock()
+
+    with patch("nexuspkm.services.proactive.httpx.AsyncClient", return_value=mock_client):
+        await service._deliver_webhook(notif, prefs)
+
+    call_kwargs = mock_client.post.call_args[1]
+    payload = call_kwargs["json"]
+    assert payload["id"] == "n-webhook"
+    assert payload["type"] == "insight"
+
+
+@pytest.mark.asyncio
+async def test_webhook_per_type_preferences_persisted(
+    mock_graph: MagicMock,
+    mock_llm: MagicMock,
+    db_path: Path,
+) -> None:
+    """Per-type webhook URLs round-trip through save/load correctly."""
+    svc = ProactiveService(mock_graph, mock_llm, db_path)
+    await svc.init()
+
+    prefs = NotificationPreferences(
+        webhook_url="https://global.example.com/hook",
+        webhook_url_meeting_prep="https://meeting.example.com/hook",
+        webhook_url_related_content="https://related.example.com/hook",
+        webhook_url_contradiction="https://contradiction.example.com/hook",
+        webhook_url_insight="https://insight.example.com/hook",
+    )
+    await svc.save_preferences(prefs)
+    loaded = await svc.get_preferences()
+
+    assert loaded.webhook_url == "https://global.example.com/hook"
+    assert loaded.webhook_url_meeting_prep == "https://meeting.example.com/hook"
+    assert loaded.webhook_url_related_content == "https://related.example.com/hook"
+    assert loaded.webhook_url_contradiction == "https://contradiction.example.com/hook"
+    assert loaded.webhook_url_insight == "https://insight.example.com/hook"
+
+
+@pytest.mark.asyncio
+async def test_webhook_per_type_defaults_to_none(service: ProactiveService) -> None:
+    """All per-type webhook URLs default to None."""
+    prefs = await service.get_preferences()
+    assert prefs.webhook_url_meeting_prep is None
+    assert prefs.webhook_url_related_content is None
+    assert prefs.webhook_url_contradiction is None
+    assert prefs.webhook_url_insight is None
+
+
+@pytest.mark.asyncio
+async def test_webhook_schema_migration_from_old_db(
+    mock_graph: MagicMock,
+    mock_llm: MagicMock,
+    db_path: Path,
+) -> None:
+    """Init migrates an existing DB that lacks the per-type webhook columns."""
+    # Create old-schema DB (no per-type webhook columns)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(db_path) as conn:
+        conn.executescript(
+            "CREATE TABLE notification_preferences ("
+            "  id INTEGER PRIMARY KEY CHECK (id = 1),"
+            "  meeting_prep_enabled INTEGER NOT NULL DEFAULT 1,"
+            "  meeting_prep_lead_time_minutes INTEGER NOT NULL DEFAULT 60,"
+            "  related_content_enabled INTEGER NOT NULL DEFAULT 1,"
+            "  related_content_threshold REAL NOT NULL DEFAULT 0.7,"
+            "  contradiction_alerts_enabled INTEGER NOT NULL DEFAULT 1,"
+            "  webhook_url TEXT"
+            ");"
+            "INSERT INTO notification_preferences (id) VALUES (1);"
+        )
+        conn.executescript(
+            "CREATE TABLE IF NOT EXISTS notifications ("
+            "  id TEXT PRIMARY KEY,"
+            "  type TEXT NOT NULL,"
+            "  title TEXT NOT NULL,"
+            "  summary TEXT NOT NULL,"
+            "  priority TEXT NOT NULL,"
+            "  data TEXT NOT NULL DEFAULT '{}',"
+            "  read INTEGER NOT NULL DEFAULT 0,"
+            "  created_at TEXT NOT NULL"
+            ");"
+        )
+
+    # init() should migrate without error
+    svc = ProactiveService(mock_graph, mock_llm, db_path)
+    await svc.init()
+
+    # Per-type fields should now be readable and default to None
+    prefs = await svc.get_preferences()
+    assert prefs.webhook_url_meeting_prep is None
+    assert prefs.webhook_url_related_content is None
+    assert prefs.webhook_url_contradiction is None
+    assert prefs.webhook_url_insight is None
+
+    # Save and reload with per-type URLs to confirm the columns are writable
+    updated = NotificationPreferences(webhook_url_meeting_prep="https://meeting.example.com/hook")
+    await svc.save_preferences(updated)
+    loaded = await svc.get_preferences()
+    assert loaded.webhook_url_meeting_prep == "https://meeting.example.com/hook"
