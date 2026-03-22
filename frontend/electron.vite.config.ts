@@ -7,14 +7,18 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        input: 'electron/main.ts',
+        input: path.resolve(__dirname, 'electron/main.ts'),
+        output: { entryFileNames: 'index.js' },
       },
     },
   },
   preload: {
     build: {
       rollupOptions: {
-        input: 'electron/preload.ts',
+        input: path.resolve(__dirname, 'electron/preload.ts'),
+        // electron-vite 5 outputs ESM preload as <entryName>.mjs; pin the name
+        // explicitly so getPreloadPath() in main.ts stays in sync.
+        output: { entryFileNames: 'preload.mjs' },
       },
     },
   },
