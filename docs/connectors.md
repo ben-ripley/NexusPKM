@@ -48,10 +48,10 @@ automatically.
 # config/connectors.yaml
 teams:
   enabled: true
-  sync_interval_minutes: 60
+  sync_interval_minutes: 30
   # Only fetch transcripts from meetings on or after this date on the initial sync.
   # Has no effect on subsequent incremental syncs.
-  # lookback_date: "2024-01-01"
+  # transcript_lookback_date: "2024-01-01"
 ```
 
 **Environment variables:**

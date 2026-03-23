@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from nexuspkm.config.models import TeamsConnectorConfig
 from nexuspkm.connectors.base import ConnectorStatus
@@ -43,7 +44,7 @@ def _make_connector(
     return TeamsTranscriptConnector(
         token_dir=tmp_path / "tokens",
         state_dir=tmp_path / "state",
-        config=TeamsConnectorConfig(lookback_date=lookback_date),
+        config=TeamsConnectorConfig(transcript_lookback_date=lookback_date),
     )
 
 
@@ -309,6 +310,23 @@ class TestFetch:
 
 
 # ---------------------------------------------------------------------------
+# TestLookbackDateValidation (sync — Pydantic config validation)
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_lookback_date_raises_validation_error() -> None:
+    """TeamsConnectorConfig rejects non-ISO strings at config load time."""
+    with pytest.raises(ValidationError, match="transcript_lookback_date"):
+        TeamsConnectorConfig(transcript_lookback_date="not-a-date")
+
+
+def test_invalid_lookback_date_wrong_order_raises() -> None:
+    """DD-MM-YYYY format is rejected — only ISO order is valid."""
+    with pytest.raises(ValidationError, match="transcript_lookback_date"):
+        TeamsConnectorConfig(transcript_lookback_date="01-01-2024")
+
+
+# ---------------------------------------------------------------------------
 # TestLookbackDate
 # ---------------------------------------------------------------------------
 
@@ -322,12 +340,12 @@ class TestLookbackDate:
         captured_params: dict[str, str] = {}
 
         async def fake_list_meetings(
-            client: object, token: str, since: datetime.datetime | None
+            _client: object, _token: str, since: datetime.datetime | None
         ) -> AsyncGenerator[dict[str, object], None]:
             if since is not None:
                 captured_params["startDateTime"] = since.strftime("%Y-%m-%dT%H:%M:%SZ")
             return
-            yield  # make it an async generator
+            yield  # pyright: ignore[reportUnreachable]
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
@@ -336,7 +354,7 @@ class TestLookbackDate:
             async for _ in connector.fetch():
                 pass
 
-        assert captured_params.get("startDateTime", "").startswith("2024-01-01")
+        assert captured_params.get("startDateTime") == "2024-01-01T00:00:00Z"
 
     async def test_lookback_date_not_applied_on_incremental_sync(self, tmp_path: Path) -> None:
         """lookback_date is ignored when since is already set (incremental sync)."""
@@ -346,11 +364,11 @@ class TestLookbackDate:
         captured_since: list[datetime.datetime | None] = []
 
         async def fake_list_meetings(
-            client: object, token: str, since: datetime.datetime | None
+            _client: object, _token: str, since: datetime.datetime | None
         ) -> AsyncGenerator[dict[str, object], None]:
             captured_since.append(since)
             return
-            yield
+            yield  # pyright: ignore[reportUnreachable]
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
@@ -369,11 +387,11 @@ class TestLookbackDate:
         captured_since: list[datetime.datetime | None] = []
 
         async def fake_list_meetings(
-            client: object, token: str, since: datetime.datetime | None
+            _client: object, _token: str, since: datetime.datetime | None
         ) -> AsyncGenerator[dict[str, object], None]:
             captured_since.append(since)
             return
-            yield
+            yield  # pyright: ignore[reportUnreachable]
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
@@ -392,11 +410,11 @@ class TestLookbackDate:
         captured_since: list[datetime.datetime | None] = []
 
         async def fake_list_meetings(
-            client: object, token: str, since: datetime.datetime | None
+            _client: object, _token: str, since: datetime.datetime | None
         ) -> AsyncGenerator[dict[str, object], None]:
             captured_since.append(since)
             return
-            yield
+            yield  # pyright: ignore[reportUnreachable]
 
         with (
             patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
