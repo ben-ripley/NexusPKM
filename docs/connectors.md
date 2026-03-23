@@ -48,7 +48,10 @@ automatically.
 # config/connectors.yaml
 teams:
   enabled: true
-  sync_interval_minutes: 60
+  sync_interval_minutes: 30
+  # Only fetch transcripts from meetings on or after this date on the initial sync.
+  # Has no effect on subsequent incremental syncs.
+  # transcript_lookback_date: "2024-01-01"
 ```
 
 **Environment variables:**
@@ -60,7 +63,9 @@ MS_CLIENT_SECRET=your-app-client-secret
 
 **Sync behavior:** Incremental — only meetings that started after the last
 successful sync are fetched. If Teams transcription wasn't enabled for a
-meeting, it's skipped gracefully.
+meeting, it's skipped gracefully. On the initial sync, `lookback_date` limits
+how far back the import reaches; without it, all available transcripts are
+fetched (subject to your Teams tenant's retention policy).
 
 **Trigger authentication:**
 ```bash

@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from nexuspkm.config.models import TeamsConnectorConfig
 from nexuspkm.connectors.base import ConnectorStatus
@@ -37,11 +38,13 @@ def _make_response(
     return httpx.Response(status_code, json=json_body or {}, request=_DUMMY_REQUEST)
 
 
-def _make_connector(tmp_path: Path) -> TeamsTranscriptConnector:
+def _make_connector(
+    tmp_path: Path, *, lookback_date: str | None = None
+) -> TeamsTranscriptConnector:
     return TeamsTranscriptConnector(
         token_dir=tmp_path / "tokens",
         state_dir=tmp_path / "state",
-        config=TeamsConnectorConfig(),
+        config=TeamsConnectorConfig(transcript_lookback_date=lookback_date),
     )
 
 
@@ -304,6 +307,123 @@ class TestFetch:
         with patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value=None)):
             docs = [doc async for doc in connector.fetch()]
         assert docs == []
+
+
+# ---------------------------------------------------------------------------
+# TestLookbackDateValidation (sync — Pydantic config validation)
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_lookback_date_raises_validation_error() -> None:
+    """TeamsConnectorConfig rejects non-ISO strings at config load time."""
+    with pytest.raises(ValidationError, match="transcript_lookback_date"):
+        TeamsConnectorConfig(transcript_lookback_date="not-a-date")
+
+
+def test_invalid_lookback_date_wrong_order_raises() -> None:
+    """DD-MM-YYYY format is rejected — only ISO order is valid."""
+    with pytest.raises(ValidationError, match="transcript_lookback_date"):
+        TeamsConnectorConfig(transcript_lookback_date="01-01-2024")
+
+
+# ---------------------------------------------------------------------------
+# TestLookbackDate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+class TestLookbackDate:
+    async def test_lookback_date_applied_on_initial_sync(self, tmp_path: Path) -> None:
+        """lookback_date is used as $filter startDateTime when since is None."""
+        connector = _make_connector(tmp_path, lookback_date="2024-01-01")
+
+        captured_params: dict[str, str] = {}
+
+        async def fake_list_meetings(
+            _client: object, _token: str, since: datetime.datetime | None
+        ) -> AsyncGenerator[dict[str, object], None]:
+            if since is not None:
+                captured_params["startDateTime"] = since.strftime("%Y-%m-%dT%H:%M:%SZ")
+            return
+            yield  # pyright: ignore[reportUnreachable]
+
+        with (
+            patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
+            patch.object(connector, "_list_meetings", side_effect=fake_list_meetings),
+        ):
+            async for _ in connector.fetch():
+                pass
+
+        assert captured_params.get("startDateTime") == "2024-01-01T00:00:00Z"
+
+    async def test_lookback_date_not_applied_on_incremental_sync(self, tmp_path: Path) -> None:
+        """lookback_date is ignored when since is already set (incremental sync)."""
+        connector = _make_connector(tmp_path, lookback_date="2024-01-01")
+        incremental_since = datetime.datetime(2026, 3, 1, tzinfo=datetime.UTC)
+
+        captured_since: list[datetime.datetime | None] = []
+
+        async def fake_list_meetings(
+            _client: object, _token: str, since: datetime.datetime | None
+        ) -> AsyncGenerator[dict[str, object], None]:
+            captured_since.append(since)
+            return
+            yield  # pyright: ignore[reportUnreachable]
+
+        with (
+            patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
+            patch.object(connector, "_list_meetings", side_effect=fake_list_meetings),
+        ):
+            async for _ in connector.fetch(since=incremental_since):
+                pass
+
+        assert captured_since == [incremental_since]
+
+    async def test_lookback_date_with_utc_offset_is_converted(self, tmp_path: Path) -> None:
+        """lookback_date with a UTC offset is converted, not silently replaced."""
+        # "2024-06-01T00:00:00+05:30" is 2024-05-31T18:30:00Z in UTC.
+        connector = _make_connector(tmp_path, lookback_date="2024-06-01T00:00:00+05:30")
+
+        captured_since: list[datetime.datetime | None] = []
+
+        async def fake_list_meetings(
+            _client: object, _token: str, since: datetime.datetime | None
+        ) -> AsyncGenerator[dict[str, object], None]:
+            captured_since.append(since)
+            return
+            yield  # pyright: ignore[reportUnreachable]
+
+        with (
+            patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
+            patch.object(connector, "_list_meetings", side_effect=fake_list_meetings),
+        ):
+            async for _ in connector.fetch():
+                pass
+
+        assert captured_since[0] is not None
+        assert captured_since[0].date() == datetime.date(2024, 5, 31)
+
+    async def test_no_lookback_date_passes_since_as_none(self, tmp_path: Path) -> None:
+        """Without lookback_date, since=None on initial sync is passed through unchanged."""
+        connector = _make_connector(tmp_path)
+
+        captured_since: list[datetime.datetime | None] = []
+
+        async def fake_list_meetings(
+            _client: object, _token: str, since: datetime.datetime | None
+        ) -> AsyncGenerator[dict[str, object], None]:
+            captured_since.append(since)
+            return
+            yield  # pyright: ignore[reportUnreachable]
+
+        with (
+            patch.object(connector._auth, "get_access_token", new=AsyncMock(return_value="tok")),
+            patch.object(connector, "_list_meetings", side_effect=fake_list_meetings),
+        ):
+            async for _ in connector.fetch():
+                pass
+
+        assert captured_since == [None]
 
 
 class TestHealthCheck:

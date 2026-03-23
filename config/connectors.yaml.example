@@ -5,6 +5,9 @@
 teams:
   enabled: false
   sync_interval_minutes: 30
+  # Only fetch transcripts from meetings on or after this date on the initial sync.
+  # Has no effect on subsequent incremental syncs. Recommended to avoid importing all history.
+  # transcript_lookback_date: "2024-01-01"
   # MS Graph credentials via env: MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET
 
 outlook:

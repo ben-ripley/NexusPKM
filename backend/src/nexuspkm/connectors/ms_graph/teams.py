@@ -130,8 +130,25 @@ class TeamsTranscriptConnector(BaseConnector):
             log.warning("teams_connector.no_token_skipping_fetch")
             return
 
+        # On initial sync (since is None), apply transcript_lookback_date as the floor.
+        effective_since = since
+        if effective_since is None and self._config.transcript_lookback_date:
+            try:
+                lookback_dt = datetime.datetime.fromisoformat(self._config.transcript_lookback_date)
+                effective_since = (
+                    lookback_dt.astimezone(datetime.UTC)
+                    if lookback_dt.tzinfo is not None
+                    else lookback_dt.replace(tzinfo=datetime.UTC)
+                )
+            except ValueError:
+                log.error(
+                    "teams_connector.invalid_transcript_lookback_date",
+                    value=self._config.transcript_lookback_date,
+                )
+                return
+
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0)) as client:
-            async for meeting in self._list_meetings(client, access_token, since):
+            async for meeting in self._list_meetings(client, access_token, effective_since):
                 meeting_id = str(meeting.get("id", ""))
                 if not meeting_id:
                     continue
