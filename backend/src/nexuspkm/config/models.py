@@ -137,6 +137,9 @@ class TeamsConnectorConfig(BaseModel):
     # intentionally absent from this model; the connector reads them directly.
     enabled: bool = False
     sync_interval_minutes: int = Field(default=30, gt=0)
+    # ISO date "YYYY-MM-DD" — used as startDateTime filter on the initial sync only.
+    # Has no effect on incremental syncs (where since is already set from the last sync).
+    lookback_date: str | None = None
 
 
 class OutlookConnectorConfig(BaseModel):
