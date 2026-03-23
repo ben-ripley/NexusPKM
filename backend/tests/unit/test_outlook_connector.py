@@ -594,9 +594,7 @@ class TestFetchDeletedIds:
 
 @pytest.mark.asyncio
 class TestEmailLookbackDate:
-    async def test_lookback_date_adds_filter_param_on_initial_sync(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_lookback_date_adds_filter_param_on_initial_sync(self, tmp_path: Path) -> None:
         """$filter is added to the initial delta request when email_lookback_date is set."""
         connector = _make_connector(tmp_path, email_lookback_date="2024-01-01")
 
@@ -605,7 +603,13 @@ class TestEmailLookbackDate:
         async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
             if "/delta" in url and kwargs.get("params"):
                 captured_params.update(kwargs["params"])  # type: ignore[arg-type]
-            return _make_response(200, json_body={"value": [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=tok"})
+            return _make_response(
+                200,
+                json_body={
+                    "value": [],
+                    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=tok",
+                },
+            )
 
         with patch.object(connector, "_request_with_retry", side_effect=fake_request):
             await connector._list_emails_delta(MagicMock(), "token", delta_token=None)
@@ -614,9 +618,7 @@ class TestEmailLookbackDate:
         assert "2024-01-01T00:00:00Z" in captured_params["$filter"]
         assert "receivedDateTime ge" in captured_params["$filter"]
 
-    async def test_lookback_date_not_applied_on_incremental_sync(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_lookback_date_not_applied_on_incremental_sync(self, tmp_path: Path) -> None:
         """$filter is NOT added when a delta token exists (incremental sync)."""
         connector = _make_connector(tmp_path, email_lookback_date="2024-01-01")
 
@@ -625,12 +627,16 @@ class TestEmailLookbackDate:
         async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
             if kwargs.get("params"):
                 captured_params.update(kwargs["params"])  # type: ignore[arg-type]
-            return _make_response(200, json_body={"value": [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=newtok"})
+            return _make_response(
+                200,
+                json_body={
+                    "value": [],
+                    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=newtok",
+                },
+            )
 
         with patch.object(connector, "_request_with_retry", side_effect=fake_request):
-            await connector._list_emails_delta(
-                MagicMock(), "token", delta_token="existing-token"
-            )
+            await connector._list_emails_delta(MagicMock(), "token", delta_token="existing-token")
 
         assert "$filter" not in captured_params
 
@@ -643,7 +649,13 @@ class TestEmailLookbackDate:
         async def fake_request(client: object, method: str, url: str, **kwargs: object) -> object:
             if "/delta" in url and kwargs.get("params"):
                 captured_params.update(kwargs["params"])  # type: ignore[arg-type]
-            return _make_response(200, json_body={"value": [], "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=tok"})
+            return _make_response(
+                200,
+                json_body={
+                    "value": [],
+                    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/me/messages/delta?$deltaToken=tok",
+                },
+            )
 
         with patch.object(connector, "_request_with_retry", side_effect=fake_request):
             await connector._list_emails_delta(MagicMock(), "token", delta_token=None)
@@ -694,9 +706,9 @@ class TestCalendarLookbackDate:
             await connector._fetch_calendar(MagicMock(), "token")
         after = dt.datetime.now(tz=dt.UTC).replace(microsecond=0)
 
-        end_dt = dt.datetime.strptime(
-            captured_params["endDateTime"], "%Y-%m-%dT%H:%M:%SZ"
-        ).replace(tzinfo=dt.UTC)
+        end_dt = dt.datetime.strptime(captured_params["endDateTime"], "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=dt.UTC
+        )
         expected_min = before + dt.timedelta(days=7)
         expected_max = after + dt.timedelta(days=7)
         assert expected_min <= end_dt <= expected_max

@@ -419,9 +419,7 @@ class ProactiveService:
             else:
                 title = f"Contradiction: '{c.field_name}' on unknown entity"
 
-            source_doc = await loop.run_in_executor(
-                None, self._graph.get_document, c.source_doc_id
-            )
+            source_doc = await loop.run_in_executor(None, self._graph.get_document, c.source_doc_id)
 
             data: dict[str, object] = {
                 "contradiction_id": c.id,

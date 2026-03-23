@@ -1,10 +1,20 @@
 # NexusPKM User Documentation
 
-NexusPKM is a locally-hosted personal knowledge management application that
-consolidates information from your daily tools — Teams meetings, email, calendar, Obsidian notes, Jira, and Apple Notes — into a single, searchable knowledge base
-that you can chat with.
+NexusPKM is a locally-hosted personal knowledge management application that consolidates information from your daily tools — Teams meetings, email, calendar, Obsidian notes, Jira, and Apple Notes — into a single, searchable knowledge base that you can chat with.
 
 Everything runs on your machine. Your data never leaves.
+
+---
+
+[![CI](https://github.com/ben-ripley/NexusPKM/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-ripley/NexusPKM/actions/workflows/ci.yml)
+
+---
+
+[![GitHub](https://img.shields.io/badge/GitHub-%23121011.svg?logo=github&logoColor=white)](https://github.com/ben-ripley)
+
+[![X](https://img.shields.io/badge/X-%23000000.svg?logo=X&logoColor=white)](https://x.com/benripley)
+
+[![LinkedIn](https://custom-icon-badges.demolab.com/badge/LinkedIn-0A66C2?logo=linkedin-white&logoColor=fff)](https://www.linkedin.com/in/benripley/)
 
 ---
 

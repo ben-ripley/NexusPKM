@@ -263,9 +263,9 @@ class OutlookConnector(BaseConnector):
         """Fetch calendar events within the configured window."""
         now = datetime.datetime.now(tz=datetime.UTC)
         if self._config.calendar_lookback_date:
-            start = datetime.datetime.fromisoformat(
-                self._config.calendar_lookback_date
-            ).replace(tzinfo=datetime.UTC)
+            start = datetime.datetime.fromisoformat(self._config.calendar_lookback_date).replace(
+                tzinfo=datetime.UTC
+            )
         else:
             start = now - datetime.timedelta(days=self._config.calendar_window_days)
         end = now + datetime.timedelta(days=self._config.calendar_window_days)
