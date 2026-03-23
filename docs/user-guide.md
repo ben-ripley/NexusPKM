@@ -397,7 +397,6 @@ Each connector has a settings card where you can:
 | Shortcut | Action |
 |---|---|
 | `/` | Focus global search bar |
-| `Ctrl+K` / `Cmd+K` | Open command palette (quick navigation) |
 | `Enter` | Send chat message |
 | `Shift+Enter` | New line in chat input |
 | `Esc` | Close modal / panel |
@@ -408,7 +407,7 @@ Each connector has a settings card where you can:
 
 **Let the initial sync complete before exploring.** Entity extraction runs asynchronously — the knowledge graph continues building after documents are indexed. The graph explorer and chat answers improve as extraction processes more documents.
 
-**Use specific entity names in chat.** "What's the status of the Hercules project?" will trigger a graph traversal for the Atlas Project entity in addition to a vector search, producing more connected results.
+**Use specific entity names in chat.** "What's the status of the Hercules project?" will trigger a graph traversal for the Hercules Project entity in addition to a vector search, producing more connected results.
 
 **The `/search` mode is good for raw results.** If the LLM's answer misses something you know is in your data, use `/search` to see the raw matching chunks directly.
 

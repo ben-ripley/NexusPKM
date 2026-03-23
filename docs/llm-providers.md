@@ -44,7 +44,7 @@ For a personal PKM where data sensitivity matters, the local trade-off is compel
 
 ## Why qwen2.5:14b and mxbai-embed-large?
 
-I'm using a Mac M4 Pro with 24GB unified memory and have found these are the ideal models for my hardware. Your milage may vary, so experiment.
+I'm using a Mac M4 Pro with 24GB unified memory and have found these are the ideal models for my hardware. Your mileage may vary, so experiment.
 
 ### qwen2.5:14b — inference
 
