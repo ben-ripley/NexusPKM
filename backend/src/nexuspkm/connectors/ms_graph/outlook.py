@@ -263,9 +263,12 @@ class OutlookConnector(BaseConnector):
         """Fetch calendar events within the configured window."""
         now = datetime.datetime.now(tz=datetime.UTC)
         if self._config.calendar_lookback_date:
-            start = datetime.datetime.fromisoformat(
-                self._config.calendar_lookback_date
-            ).replace(tzinfo=datetime.UTC)
+            _dt = datetime.datetime.fromisoformat(self._config.calendar_lookback_date)
+            start = (
+                _dt.astimezone(datetime.UTC)
+                if _dt.tzinfo is not None
+                else _dt.replace(tzinfo=datetime.UTC)
+            )
         else:
             start = now - datetime.timedelta(days=self._config.calendar_window_days)
         end = now + datetime.timedelta(days=self._config.calendar_window_days)
@@ -455,8 +458,11 @@ class OutlookConnector(BaseConnector):
             if received_str:
                 try:
                     received_dt = _parse_graph_datetime(received_str)
-                    date_from = datetime.datetime.fromisoformat(self._config.date_from).replace(
-                        tzinfo=datetime.UTC
+                    _df = datetime.datetime.fromisoformat(self._config.date_from)
+                    date_from = (
+                        _df.astimezone(datetime.UTC)
+                        if _df.tzinfo is not None
+                        else _df.replace(tzinfo=datetime.UTC)
                     )
                     if received_dt < date_from:
                         return False
