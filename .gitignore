@@ -35,6 +35,7 @@ coverage.xml
 # Node.js
 node_modules/
 frontend/dist/
+frontend/out/
 *.tsbuildinfo
 
 # Environment
