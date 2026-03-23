@@ -279,8 +279,11 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
-  // On macOS, re-open window only if backend is still running
-  if (BrowserWindow.getAllWindows().length === 0 && backendProcess !== null) {
+  // On macOS, clicking the dock icon should show the window if it exists but is hidden
+  // (close-to-tray hides rather than destroys the window).
+  if (mainWindow !== null) {
+    showAndFocusWindow(mainWindow)
+  } else if (backendProcess !== null) {
     mainWindow = createMainWindow()
     setupCloseToTray(
       mainWindow,
