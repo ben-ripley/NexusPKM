@@ -1,20 +1,21 @@
+---
+title: Connectors
+parent: Configuration
+nav_order: 3
+---
+
 # Connectors
 
-Connectors are the data sources NexusPKM pulls content from. Each connector
-runs on a schedule in the background, fetching new and changed content since
-the last sync. All connectors are read-only — they never write back to the
-source system.
+Connectors are the data sources Nexus PKM pulls content from. Each connector runs on a schedule in the background, fetching new and changed content since
+the last sync. All connectors are read-only — they never write back to the source system.
 
 ---
 
 ## Enabling a connector
 
-All connector settings live in `config/connectors.yaml`. Set `enabled: true`
-for each connector you want to use. API credentials must be provided as
-environment variables (not in the config file).
+All connector settings live in `config/connectors.yaml`. Set `enabled: true` for each connector you want to use. API credentials must be provided as environment variables (not in the config file).
 
-After enabling a connector, trigger an initial sync from the Settings page or
-via the API:
+After enabling a connector, trigger an initial sync from the Settings page or via the API:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/connectors/{name}/sync
@@ -24,24 +25,16 @@ curl -X POST http://127.0.0.1:8000/api/connectors/{name}/sync
 
 ## Microsoft Teams
 
-**What it ingests:** Meeting transcripts — the spoken content of your recorded
-Teams meetings, with speaker attribution and timestamps.
+**What it ingests:** Meeting transcripts — the spoken content of your recorded Teams meetings, with speaker attribution and timestamps.
 
-**How it works:** Uses the Microsoft Graph API to fetch meeting transcripts in
-VTT format (the same format used for video subtitles). Each transcript becomes
-a document with the full conversation text and speaker labels preserved
-("Jane Smith: We should ship this by Friday…").
+**How it works:** Uses the Microsoft Graph API to fetch meeting transcripts in VTT format (the same format used for video subtitles). Each transcript becomes a document with the full conversation text and speaker labels preserved ("Jane Smith: We should ship this by Friday…").
 
-**Prerequisites:** Requires an Azure AD app registration with the following
-delegated permissions:
+**Prerequisites:** Requires an Azure AD app registration with the following delegated permissions:
 - `OnlineMeetingTranscript.Read`
 - `OnlineMeeting.Read`
 - `User.Read`
 
-**Authentication:** Device Code Flow — on first use, the application displays a
-short code you enter at microsoft.com/devicelogin to authorize access. Tokens
-are stored encrypted at `data/.tokens/ms_graph.json` and refreshed
-automatically.
+**Authentication:** Device Code Flow — on first use, the application displays a short code you enter at microsoft.com/devicelogin to authorize access. Tokens are stored encrypted at `data/.tokens/ms_graph.json` and refreshed automatically.
 
 **Config:**
 ```yaml
@@ -61,11 +54,7 @@ MS_CLIENT_ID=your-app-client-id
 MS_CLIENT_SECRET=your-app-client-secret
 ```
 
-**Sync behavior:** Incremental — only meetings that started after the last
-successful sync are fetched. If Teams transcription wasn't enabled for a
-meeting, it's skipped gracefully. On the initial sync, `lookback_date` limits
-how far back the import reaches; without it, all available transcripts are
-fetched (subject to your Teams tenant's retention policy).
+**Sync behavior:** Incremental — only meetings that started after the last successful sync are fetched. If Teams transcription wasn't enabled for a meeting, it's skipped gracefully. On the initial sync, `lookback_date` limits how far back the import reaches; without it, all available transcripts are fetched (subject to your Teams tenant's retention policy).
 
 **Trigger authentication:**
 ```bash
@@ -76,16 +65,11 @@ curl -X POST http://127.0.0.1:8000/api/connectors/teams/authenticate
 
 ## Microsoft Outlook (Email & Calendar)
 
-**What it ingests:** Email threads from your configured folders, and calendar
-events including attendees, location, and meeting body.
+**What it ingests:** Email threads from your configured folders, and calendar events including attendees, location, and meeting body.
 
-**How it works:** Uses the Microsoft Graph API, sharing the same OAuth2
-authentication as the Teams connector. Emails are grouped by conversation thread
-so related messages appear as a single document. Calendar events are ingested
-as documents with attendee lists and descriptions.
+**How it works:** Uses the Microsoft Graph API, sharing the same OAuth2 authentication as the Teams connector. Emails are grouped by conversation thread so related messages appear as a single document. Calendar events are ingested as documents with attendee lists and descriptions.
 
-**Prerequisites:** Same Azure AD app registration as Teams, with additional
-delegated permissions:
+**Prerequisites:** Same Azure AD app registration as Teams, with additional delegated permissions:
 - `Mail.Read`
 - `Calendars.Read`
 
@@ -112,13 +96,9 @@ MS_CLIENT_ID=your-app-client-id
 MS_CLIENT_SECRET=your-app-client-secret
 ```
 
-**Sync behavior:** Email uses Microsoft Graph **delta queries** — after the
-initial sync, only new and changed messages are fetched. Calendar uses a sliding
-window. Deleted emails and events are removed from the knowledge base.
+**Sync behavior:** Email uses Microsoft Graph **delta queries** — after the initial sync, only new and changed messages are fetched. Calendar uses a sliding window. Deleted emails and events are removed from the knowledge base.
 
-> **Tip:** Set `email_lookback_date` before the first sync. Without it, the
-> connector will try to import your entire mailbox history, which can take a
-> very long time and use significant LLM tokens for entity extraction.
+> **Tip:** Set `email_lookback_date` before the first sync. Without it, the connector will try to import your entire mailbox history, which can take a very long time and use significant LLM tokens for entity extraction.
 
 ---
 
@@ -126,15 +106,11 @@ window. Deleted emails and events are removed from the knowledge base.
 
 **What it ingests:** Markdown notes from an Obsidian vault.
 
-**How it works:** Watches the vault directory for file system events (created,
-modified, deleted) using efficient OS-level file notifications. On first run it
-performs a full scan; after that it responds to changes in real time with a
-2-second debounce to handle autosave bursts.
+**How it works:** Watches the vault directory for file system events (created, modified, deleted) using efficient OS-level file notifications. On first run it performs a full scan; after that it responds to changes in real time with a 2-second debounce to handle autosave bursts.
 
 Obsidian-specific syntax is handled:
 - **YAML frontmatter** is parsed and stored as metadata (title, tags, dates)
-- **Wikilinks** (`[[Note Title]]`) are extracted and used to map relationships
-  between notes
+- **Wikilinks** (`[[Note Title]]`) are extracted and used to map relationships between notes
 - **Tags** (`#tag`, `#parent/child`) are extracted as document tags
 - **Callouts** and **embeds** are parsed for relationship tracking
 - The raw markdown is stored; plain text is used for embedding
@@ -154,28 +130,19 @@ obsidian:
     - "templates/"
 ```
 
-**Sync behavior:** Real-time file watching plus periodic full-scan verification.
-Deleted files are removed from both the vector store and the graph. The
-connector never modifies any files in your vault.
+**Sync behavior:** Real-time file watching plus periodic full-scan verification. Deleted files are removed from both the vector store and the graph. The connector never modifies any files in your vault.
 
-> **Screenshot placeholder:** Obsidian connector status card showing note count
-> and last scan time
+> **Screenshot placeholder:** Obsidian connector status card showing note count and last scan time
 
 ---
 
 ## JIRA
 
-**What it ingests:** Issues (stories, bugs, tasks, epics) and their comments
-from configured JIRA projects.
+**What it ingests:** Issues (stories, bugs, tasks, epics) and their comments from configured JIRA projects.
 
-**How it works:** Uses the JIRA REST API v3 with JQL (JIRA Query Language) to
-fetch issues. Each issue becomes a document containing the summary, description,
-and all comments concatenated chronologically. JIRA entities are mapped to the
-knowledge graph — assignees become Person nodes, projects become Project nodes,
-and issues become ActionItem nodes.
+**How it works:** Uses the JIRA REST API v3 with JQL (JIRA Query Language) to fetch issues. Each issue becomes a document containing the summary, description, and all comments concatenated chronologically. JIRA entities are mapped to the knowledge graph — assignees become Person nodes, projects become Project nodes, and issues become ActionItem nodes.
 
-**Prerequisites:** A JIRA Cloud account with an API token. Generate one at
-[id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
+**Prerequisites:** A JIRA Cloud account with an API token. Generate one at [id.atlassian.com/manage-profile/security/api-tokens](https://id.atlassian.com/manage-profile/security/api-tokens).
 
 **Config:**
 ```yaml
@@ -193,12 +160,11 @@ JIRA_EMAIL=you@company.com
 JIRA_API_TOKEN=your-api-token
 ```
 
-**Sync behavior:** Incremental using JQL `updated >= "-Xh"` to find recently
-changed issues. Issues deleted in JIRA are removed from the knowledge base.
+**Sync behavior:** Incremental using JQL `updated >= "-Xh"` to find recently changed issues. Issues deleted in JIRA are removed from the knowledge base.
 
 **Entity mapping:**
 
-| JIRA | NexusPKM graph |
+| JIRA | Nexus PKM graph |
 |---|---|
 | Issue | ActionItem |
 | Assignee | Person → ASSIGNED_TO |
@@ -213,13 +179,9 @@ changed issues. Issues deleted in JIRA are removed from the knowledge base.
 
 **What it ingests:** Notes from the Apple Notes app, including folder structure.
 
-**How it works:** macOS-only. Uses the AppleScript bridge (`osascript`) to ask
-the Notes application directly for all notes. Apple Notes has no official API,
-so this is the supported path. The note body is HTML which is converted to
-markdown for embedding.
+**How it works:** macOS-only. Uses the AppleScript bridge (`osascript`) to ask the Notes application directly for all notes. Apple Notes has no official API, so this is the supported path. The note body is HTML which is converted to markdown for embedding.
 
-On first run, macOS will show a permission dialog asking whether to allow
-NexusPKM to access Notes. You must click Allow.
+On first run, macOS will show a permission dialog asking whether to allow Nexus PKM to access Notes. You must click Allow.
 
 **No credentials required** — access is granted by the macOS permission dialog.
 
@@ -231,14 +193,9 @@ apple_notes:
   sync_interval_minutes: 15
 ```
 
-**Sync behavior:** AppleScript fetches all notes; the connector compares
-modification dates locally to determine what's new or changed. This is less
-efficient than delta queries but is a limitation of AppleScript — there's no
-"changes since timestamp" API. For large collections (1000+ notes), the initial
-sync can take a few minutes.
+**Sync behavior:** AppleScript fetches all notes; the connector compares modification dates locally to determine what's new or changed. This is less efficient than delta queries but is a limitation of AppleScript — there's no "changes since timestamp" API. For large collections (1000+ notes), the initial sync can take a few minutes.
 
-> **Note:** This connector only works on macOS. It is automatically disabled
-> on other platforms.
+> **Note:** This connector only works on macOS. It is automatically disabled on other platforms.
 
 ---
 
@@ -261,8 +218,7 @@ Each status includes:
 
 ## Triggering a manual sync
 
-From the UI: click the sync button on any connector card in the Dashboard or
-Settings.
+From the UI: click the sync button on any connector card in the Dashboard or Settings.
 
 From the API:
 ```bash

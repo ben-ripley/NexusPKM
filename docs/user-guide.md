@@ -1,6 +1,11 @@
+---
+title: User Guide
+nav_order: 5
+---
+
 # User Guide
 
-This guide walks through everything you can do in NexusPKM once it's running and your connectors are syncing.
+This guide walks through everything you can do in Nexus PKM once it's running and your connectors are syncing.
 
 ---
 
@@ -16,11 +21,11 @@ cd frontend && npm run electron:dev
 
 The backend is spawned automatically — no need to start it separately.
 
-**Production** — install the `.dmg` and launch NexusPKM from your Applications folder:
+**Production** — install the `.dmg` and launch Nexus PKM from your Applications folder:
 
 ```bash
 cd frontend && npm run electron:dist
-# Produces release/NexusPKM-{version}.dmg
+# Produces release/Nexus PKM-{version}.dmg
 ```
 
 ### Web browser (fallback)
@@ -353,7 +358,7 @@ The bell icon in the top bar shows a count of unread notifications. Click it to 
 
 | Type | What triggers it |
 |---|---|
-| **Meeting preparation** | 1 hour before a calendar event (configurable), NexusPKM assembles relevant context — past meetings with the same attendees, open action items, related JIRA tickets and notes |
+| **Meeting preparation** | 1 hour before a calendar event (configurable), Nexus PKM assembles relevant context — past meetings with the same attendees, open action items, related JIRA tickets and notes |
 | **Related content** | When a newly ingested document connects strongly to existing knowledge — e.g. a new email thread about the same project as a past meeting |
 | **Contradiction** | When new information conflicts with existing knowledge — e.g. a deadline changed, or ownership of a project changed |
 
@@ -436,7 +441,7 @@ Each connector has a settings card where you can:
 
 ---
 
-## Tips for getting the most out of NexusPKM
+## Tips for getting the most out of Nexus PKM
 
 **Let the initial sync complete before exploring.** Entity extraction runs asynchronously — the knowledge graph continues building after documents are indexed. The graph explorer and chat answers improve as extraction processes more documents.
 

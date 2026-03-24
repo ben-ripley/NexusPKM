@@ -4,8 +4,6 @@ Personal knowledge management application that consolidates data from Microsoft 
 
 Personal knowledge management application that consolidates data from Microsoft Teams, Outlook, Obsidian, JIRA, and Apple Notes into a unified local knowledge engine.
 
----
-
 #### Project Status
 [![CI](https://github.com/ben-ripley/NexusPKM/actions/workflows/ci.yml/badge.svg)](https://github.com/ben-ripley/NexusPKM/actions/workflows/ci.yml) 
 

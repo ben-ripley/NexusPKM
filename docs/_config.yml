@@ -10,3 +10,5 @@ plugins:
 
 readme_index:
   with_frontmatter: true
+
+footer_content: ""

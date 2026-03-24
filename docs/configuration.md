@@ -1,15 +1,18 @@
+---
+title: Configuration
+nav_order: 4
+has_children: true
+---
+
 # Configuration Reference
 
-NexusPKM is configured through a combination of YAML files and environment
-variables. YAML files control application behavior; environment variables
-supply secrets and can override YAML values.
+Nexus PKM is configured through a combination of YAML files and environment variables. YAML files control application behavior; environment variables supply secrets and can override YAML values.
 
 ---
 
 ## Configuration files
 
-The `config/` directory contains three YAML files. Example files are checked
-into the repository; copy them and fill in your values before first run.
+The `config/` directory contains three YAML files. Example files are checked into the repository; copy them and fill in your values before first run.
 
 ```bash
 cp config/app.yaml.example config/app.yaml
@@ -48,28 +51,15 @@ retrieval:
   top_k: 10            # Chunks retrieved per query to use as LLM context
 ```
 
-**`chunking.size`** controls how documents are split before embedding. Each
-chunk is embedded and stored as an individual unit in LanceDB. Smaller chunks
-produce more targeted search hits; larger chunks provide more surrounding
-context per result but dilute the embedding signal.
+**`chunking.size`** controls how documents are split before embedding. Each chunk is embedded and stored as an individual unit in LanceDB. Smaller chunks produce more targeted search hits; larger chunks provide more surrounding context per result but dilute the embedding signal.
 
-**`chunking.overlap`** prevents sentences at chunk boundaries from losing
-context. Each chunk shares this many tokens with the next — the window slides
-forward by `size − overlap` tokens each step. 50 tokens (≈ 2–3 sentences) is
-enough to avoid hard cuts in the middle of a thought.
+**`chunking.overlap`** prevents sentences at chunk boundaries from losing context. Each chunk shares this many tokens with the next — the window slides forward by `size − overlap` tokens each step. 50 tokens (≈ 2–3 sentences) is enough to avoid hard cuts in the middle of a thought.
 
-> Changing chunking settings requires deleting `data/lancedb/` and
-> re-ingesting, because existing chunks in the vector store were built with the
-> old settings.
+> Changing chunking settings requires deleting `data/lancedb/` and re-ingesting, because existing chunks in the vector store were built with the old settings.
 
-**`retrieval.top_k`** is the number of chunks retrieved from LanceDB and fed
-to the LLM as context for each chat query or search. Increase it if answers
-feel incomplete (more context); decrease it if responses are slow or unfocused
-(less noise in the context window).
+**`retrieval.top_k`** is the number of chunks retrieved from LanceDB and fed to the LLM as context for each chat query or search. Increase it if answers feel incomplete (more context); decrease it if responses are slow or unfocused (less noise in the context window).
 
-**Retrieval weights** must sum to 1.0. Increasing `graph_weight` makes the
-system prioritize documents that are well-connected in the knowledge graph.
-Increasing `vector_weight` puts more emphasis on semantic similarity.
+**Retrieval weights** must sum to 1.0. Increasing `graph_weight` makes the system prioritize documents that are well-connected in the knowledge graph. Increasing `vector_weight` puts more emphasis on semantic similarity.
 
 **Environment variable overrides:**
 
@@ -82,9 +72,7 @@ Increasing `vector_weight` puts more emphasis on semantic similarity.
 
 ## providers.yaml
 
-Controls which LLM and embedding model the application uses. See the dedicated
-[LLM Providers](llm-providers.md) guide for full
-details on each provider option.
+Controls which LLM and embedding model the application uses. See the dedicated [LLM Providers](llm-providers.md) guide for full details on each provider option.
 
 ```yaml
 llm:
@@ -110,19 +98,15 @@ embedding:
     dimensions: 1024
 ```
 
-**Key rule:** `llm` and `embedding` can use different providers. For example,
-you might use OpenRouter for chat (wide model selection) and Ollama for
-embeddings (free, fast, local).
+**Key rule:** `llm` and `embedding` can use different providers. For example, you might use OpenRouter for chat (wide model selection) and Ollama for embeddings (free, fast, local).
 
-**Changing the embedding model** requires deleting `data/lancedb/` before
-restarting, because the stored vectors will have the wrong dimensions.
+**Changing the embedding model** requires deleting `data/lancedb/` before restarting, because the stored vectors will have the wrong dimensions.
 
 ---
 
 ## connectors.yaml
 
-Enables and configures each data source connector. Credentials are never stored
-here — use environment variables.
+Enables and configures each data source connector. Credentials are never stored here — use environment variables.
 
 ```yaml
 teams:
@@ -167,8 +151,7 @@ apple_notes:
 
 ## Environment variables
 
-Secrets must be provided as environment variables. The application will not
-start if required variables for enabled connectors are missing.
+Secrets must be provided as environment variables. The application will not start if required variables for enabled connectors are missing.
 
 ### LLM Providers
 
@@ -210,15 +193,13 @@ export AWS_SECRET_ACCESS_KEY=...
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
-**For production (Electron app)** — configure in the Electron environment or
-use a `.env` file in the project root (gitignored).
+**For production (Electron app)** — configure in the Electron environment or use a `.env` file in the project root (gitignored).
 
 ---
 
 ## Configuration precedence
 
-When the same setting can be specified in multiple places, this order applies
-(later wins):
+When the same setting can be specified in multiple places, this order applies (later wins):
 
 1. Hardcoded defaults
 2. YAML config file value
@@ -241,8 +222,7 @@ curl -X PUT http://127.0.0.1:8000/api/connectors/jira/config \
   -d '{"sync_interval_minutes": 60}'
 ```
 
-Changes to chunking or embedding settings require a restart and potentially a
-re-index (see [How It Works](how-it-works.md)).
+Changes to chunking or embedding settings require a restart and potentially a re-index (see [How It Works](how-it-works.md)).
 
 ---
 

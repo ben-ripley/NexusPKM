@@ -1,12 +1,18 @@
+---
+title: LLM Providers
+parent: Configuration
+nav_order: 6
+---
+
 # LLM Providers
 
-NexusPKM's provider abstraction layer lets you change the LLM or embedding backend with a config file edit and an environment variable — no code changes required.
+Nexus PKM's provider abstraction layer lets you change the LLM or embedding backend with a config file edit and an environment variable — no code changes required.
 
 ---
 
 ## Why this matters
 
-NexusPKM uses LLMs for three things:
+Nexus PKM uses LLMs for three things:
 
 1. **Inference** — answering questions, summarising, generating chat responses
 2. **Entity extraction** — pulling people, projects, topics, and relationships out of ingested documents
