@@ -1,6 +1,5 @@
 ---
 title: Connectors
-parent: Configuration
 nav_order: 3
 ---
 

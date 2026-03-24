@@ -1,6 +1,5 @@
 ---
 title: LLM Providers
-parent: Configuration
 nav_order: 6
 ---
 
