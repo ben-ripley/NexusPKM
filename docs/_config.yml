@@ -1,0 +1,12 @@
+title: NexusPKM
+description: Personal knowledge management for Teams, Outlook, Obsidian, JIRA, and Apple Notes.
+remote_theme: just-the-docs/just-the-docs
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-readme-index
+  - jekyll-seo-tag
+  - jekyll-default-layout
+
+readme_index:
+  with_frontmatter: true

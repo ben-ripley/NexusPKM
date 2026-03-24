@@ -117,7 +117,6 @@ class MicrosoftGraphAuth:
         "Mail.Read",
         "Calendars.Read",
         "User.Read",
-        "offline_access",
     )
 
     def __init__(self, token_dir: Path) -> None:

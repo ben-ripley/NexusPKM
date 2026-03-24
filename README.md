@@ -1,4 +1,4 @@
-# NexusPKM
+# Nexus PKM
 
 Personal knowledge management application that consolidates data from Microsoft Teams, Outlook, Obsidian, JIRA, and Apple Notes into a unified local knowledge engine.
 
@@ -58,6 +58,23 @@ uv run uvicorn nexuspkm.main:app --reload
 cd frontend
 npm install
 npm run dev
+```
+
+### Electron App
+
+Run as a desktop app (development, with HMR):
+
+```bash
+cd frontend && npm run electron:dev
+```
+
+The backend is spawned automatically. No need to start it separately.
+
+For a production build:
+
+```bash
+cd frontend && npm run electron:dist
+# Produces release/NexusPKM-{version}.dmg
 ```
 
 ### Configuration

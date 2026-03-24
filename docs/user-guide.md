@@ -4,6 +4,39 @@ This guide walks through everything you can do in NexusPKM once it's running and
 
 ---
 
+## Starting the application
+
+### Electron desktop app (recommended)
+
+**Development** (with hot module reloading):
+
+```bash
+cd frontend && npm run electron:dev
+```
+
+The backend is spawned automatically — no need to start it separately.
+
+**Production** — install the `.dmg` and launch NexusPKM from your Applications folder:
+
+```bash
+cd frontend && npm run electron:dist
+# Produces release/NexusPKM-{version}.dmg
+```
+
+### Web browser (fallback)
+
+Run the backend and frontend separately, then open `http://localhost:5173`:
+
+```bash
+# Terminal 1
+cd backend && uvicorn nexuspkm.main:app --host 127.0.0.1 --port 8000
+
+# Terminal 2
+cd frontend && npm run dev
+```
+
+---
+
 ## Application layout
 
 > **Screenshot placeholder:** Full application shell showing top bar, left sidebar, and content area
